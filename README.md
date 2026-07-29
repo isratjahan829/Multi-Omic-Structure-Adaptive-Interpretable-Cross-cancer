@@ -288,23 +288,3 @@ reading: MOSAIC-GNN 0.641, random survival forest 0.626, clinical-only Cox
 0.51-0.54.
 
 ---
-
-## 9. Reporting checklist before submission
-
-- [ ] Every number is mean ± sd over ≥ 3 repeats × 5 folds, not a single split.
-- [ ] Baselines were tuned on the same inner splits as the model.
-- [ ] Paired bootstrap p-values reported for every headline comparison.
-- [ ] Per-cohort results shown, not only the pooled pan-cancer number.
-- [ ] Leave-one-cancer-out result reported even where it is weak — it is the
-      honest measure of "pan-cancer".
-- [ ] Top-ranked genes cross-checked against known drivers (COSMIC CGC / OncoKB)
-      and the *novel* ones stated as hypotheses, not findings.
-- [ ] Code, config JSONs, fold indices and seeds released.
-
-## 10. Limitations to state in the paper
-
-Cohort sizes here are in the hundreds, so the effective sample size for survival
-is small and confidence intervals will be wide; the co-alteration fallback graph
-is not a validated interaction network; and attention-derived rankings are
-hypotheses that require orthogonal validation. State these explicitly — a
-reviewer will otherwise state them for you.
