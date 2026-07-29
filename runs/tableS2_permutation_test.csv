@@ -1,0 +1,4 @@
+metric,observed,null_mean,null_max,chance,p_permutation
+balanced_accuracy,0.2886,0.2606,0.3146,0.25,0.1905
+auroc,0.5637,0.5062,0.5414,0.5,0.0476
+c_index,0.591,0.5019,0.5738,0.5,0.0476
