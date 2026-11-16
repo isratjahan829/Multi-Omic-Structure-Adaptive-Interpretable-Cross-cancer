@@ -117,7 +117,42 @@ def cmd_baseline(cfg: Config) -> None:
     per_fold: List[Dict[str, Dict[str, float]]] = []
     per_fold_preds: List[Dict[str, Dict[str, np.ndarray]]] = []
     per_fold_split: List[tuple] = []
+
+    # Per-fold checkpointing, for the same reason run_cv has it: this machine is
+    # reclaimed without warning, and a panel of twenty-odd models over five
+    # folds does not fit in the window between reclaims. Without this, every
+    # restart threw away every finished fold and the panel could never
+    # complete. The finished folds are reloaded and skipped instead.
+    ppath = os.path.join(cfg.train.out_dir, f"{cfg.tag}_baseline_preds.pkl")
+    if os.path.isfile(ppath):
+        try:
+            with open(ppath, "rb") as fh:
+                prev = pickle.load(fh)
+            if prev.get("folds") == cfg.train.outer_folds and \
+                    prev.get("seed") == cfg.train.seed:
+                per_fold = prev["per_fold"]
+                per_fold_preds = prev["preds"]
+                per_fold_split = prev["splits"]
+                print(f"[baseline] resuming: {len(per_fold)} of "
+                      f"{cfg.train.outer_folds} folds already done")
+            else:
+                print("[baseline] existing partial results describe a "
+                      "different split; starting over")
+        except Exception as err:
+            print(f"[baseline] could not read {ppath} ({err}); starting over")
+
+    def _save_partial() -> None:
+        tmp = ppath + ".tmp"
+        with open(tmp, "wb") as fh:
+            pickle.dump({"per_fold": per_fold, "preds": per_fold_preds,
+                         "splits": per_fold_split,
+                         "folds": cfg.train.outer_folds,
+                         "seed": cfg.train.seed}, fh)
+        os.replace(tmp, ppath)
+
     for fold, (tr, te) in enumerate(skf.split(idx, strat)):
+        if fold < len(per_fold):
+            continue                      # already finished in an earlier run
         tensors, _, data = exp.build_fold(tr)
         print(f"[baseline] fold {fold + 1}/{cfg.train.outer_folds}")
         # run_baseline_suite needs the omic block order so that late-fusion and
@@ -132,6 +167,9 @@ def cmd_baseline(cfg: Config) -> None:
         per_fold.append(metrics)
         per_fold_preds.append(preds)
         per_fold_split.append((tr, te))
+        _save_partial()
+        print(f"[baseline] checkpoint: {len(per_fold)}/"
+              f"{cfg.train.outer_folds} folds saved to {ppath}")
 
     # Keep every metric any baseline reported rather than three: a survival-only
     # model has no accuracy and must leave a blank, not a zero.
@@ -156,11 +194,10 @@ def cmd_baseline(cfg: Config) -> None:
     print(f"wrote {path}")
 
     # Fold-0 predictions are kept so the paired comparison against MOSAIC-GNN
-    # can be run later without refitting every baseline.
-    ppath = os.path.join(cfg.train.out_dir, f"{cfg.tag}_baseline_preds.pkl")
-    with open(ppath, "wb") as fh:
-        pickle.dump({"per_fold": per_fold, "preds": per_fold_preds,
-                     "splits": per_fold_split}, fh)
+    # can be run later without refitting every baseline. Already written by the
+    # per-fold checkpoint above; rewritten here so the file is complete even if
+    # the loop was skipped entirely on a resume.
+    _save_partial()
     print(f"wrote {ppath}")
 
 
