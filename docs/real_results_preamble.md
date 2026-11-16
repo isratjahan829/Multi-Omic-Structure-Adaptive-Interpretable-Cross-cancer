@@ -50,6 +50,34 @@ diagnostics and the manuscript tables.
   was needed to fit the available compute is stated at the point where that
   table appears, with the setting actually used.
 
+### Measured cost, and what it ruled out
+
+One model fit at these settings measured **over 180 s/epoch** on this
+four-core CPU container (idle machine, four threads, 1500 genes, 27682 gene
+graph edges), i.e. roughly 4.5 to 6 hours per fit. The complete schedule is
+about 64 fits per target -- five cross-validation folds, five baseline folds,
+four leave-one-cancer-out folds, fifteen diagnostic retrains and forty
+ablation folds -- or some 290 hours for the two targets. It therefore could
+not be run, and the settings were kept rather than reduced, on the explicit
+instruction that missing tables are preferable to altered ones.
+
+Work was ordered so that the metrics named in the brief exist for both
+targets as early as possible: the primary fold and its diagnostics first, then
+the baseline panels, then the paired tests reusing the saved checkpoints, and
+only then cross-validation, transfer, the permutation null and the ablation.
+Each table below states whether it was produced; those that are absent are
+absent because the run did not reach them, and no figure has been supplied in
+their place.
+
+### One comparison to make carefully
+
+The single held-out-fold tables and the cross-validation summary do **not**
+train on the same number of patients. The single-fold diagnostics split the
+training set three ways (fit = 985, validation = 493), while `run_cv` splits
+it two ways (fit = 739, validation = 739). The single-fold model therefore
+sees about a third more training data than each cross-validation fold, so a
+small gap between the two is expected and is not evidence of instability.
+
 ### Three defects fixed before anything could run
 
 These were genuine faults in the committed code, not environment problems:
