@@ -100,6 +100,8 @@ def cmd_ablate(cfg: Config) -> None:
 
 
 def cmd_baseline(cfg: Config) -> None:
+    import pickle
+
     from sklearn.model_selection import StratifiedKFold
 
     from .baselines import run_baseline_suite
@@ -113,31 +115,53 @@ def cmd_baseline(cfg: Config) -> None:
                           random_state=cfg.train.seed)
 
     per_fold: List[Dict[str, Dict[str, float]]] = []
+    per_fold_preds: List[Dict[str, Dict[str, np.ndarray]]] = []
+    per_fold_split: List[tuple] = []
     for fold, (tr, te) in enumerate(skf.split(idx, strat)):
         tensors, _, data = exp.build_fold(tr)
         print(f"[baseline] fold {fold + 1}/{cfg.train.outer_folds}")
-        per_fold.append(run_baseline_suite(
+        # run_baseline_suite needs the omic block order so that late-fusion and
+        # MOGONET-style baselines can split the flat feature axis back into
+        # modalities, and it returns (metrics, predictions) -- the predictions
+        # are what the paired bootstrap test in the manuscript is computed on.
+        metrics, preds = run_baseline_suite(
             tensors.x.numpy(), tensors.clinical.numpy(), data.label, data.time,
             data.event, tr, te, max(int(data.label.max()) + 1, 2),
-            seed=cfg.train.seed, device=str(exp.device)))
+            block_names=sorted(exp.skeleton.blocks),
+            seed=cfg.train.seed, device=str(exp.device))
+        per_fold.append(metrics)
+        per_fold_preds.append(preds)
+        per_fold_split.append((tr, te))
 
+    # Keep every metric any baseline reported rather than three: a survival-only
+    # model has no accuracy and must leave a blank, not a zero.
+    all_metrics = sorted({m for f in per_fold for d in f.values() for m in d})
     names = sorted(per_fold[0])
-    print(f"\n{'model':>18} {'bacc':>8} {'auroc':>8} {'c-index':>8}")
+    print(f"\n{'model':>24} {'bacc':>8} {'auroc':>8} {'c-index':>8}")
     summary = {}
     for name in names:
         agg = {}
-        for metric in ("balanced_accuracy", "auroc", "c_index"):
+        for metric in all_metrics:
             vals = [f[name].get(metric, float("nan")) for f in per_fold]
-            vals = [v for v in vals if np.isfinite(v)]
+            vals = [v for v in vals if v is not None and np.isfinite(v)]
             agg[metric] = {"mean": float(np.mean(vals)) if vals else float("nan"),
-                           "std": float(np.std(vals)) if vals else float("nan")}
+                           "std": float(np.std(vals)) if vals else float("nan"),
+                           "n": len(vals)}
         summary[name] = agg
-        print(f"{name:>18} {agg['balanced_accuracy']['mean']:8.3f} "
+        print(f"{name:>24} {agg['balanced_accuracy']['mean']:8.3f} "
               f"{agg['auroc']['mean']:8.3f} {agg['c_index']['mean']:8.3f}")
     path = os.path.join(cfg.train.out_dir, f"{cfg.tag}_baselines.json")
     with open(path, "w") as fh:
         json.dump(summary, fh, indent=2, default=float)
     print(f"wrote {path}")
+
+    # Fold-0 predictions are kept so the paired comparison against MOSAIC-GNN
+    # can be run later without refitting every baseline.
+    ppath = os.path.join(cfg.train.out_dir, f"{cfg.tag}_baseline_preds.pkl")
+    with open(ppath, "wb") as fh:
+        pickle.dump({"per_fold": per_fold, "preds": per_fold_preds,
+                     "splits": per_fold_split}, fh)
+    print(f"wrote {ppath}")
 
 
 def cmd_loco(cfg: Config) -> None:

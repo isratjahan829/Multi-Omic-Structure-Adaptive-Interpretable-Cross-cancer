@@ -209,6 +209,10 @@ class Experiment:
                                            self.device.type == "cuda")
 
         best_score, best_state, stale = -np.inf, None, 0
+        # Per-evaluation trace, read back by diagnostics.learning_curves. It is
+        # recorded here rather than reconstructed afterwards because the only
+        # place the train/validation split is seen epoch by epoch is this loop.
+        history: List[Dict[str, float]] = []
         swa_state: Optional[Dict[str, torch.Tensor]] = None
         swa_n = 0
         swa_start = int(cfg.train.swa_start_frac * cfg.train.epochs)
@@ -271,6 +275,15 @@ class Experiment:
 
             if (epoch + 1) % every == 0 or epoch == cfg.train.epochs - 1:
                 score, detail = self._validate(model, t, val_idx, train_idx)
+                n_steps = max(sum(1 for _ in range(0, len(perm), bs)), 1)
+                history.append({
+                    "epoch": epoch + 1,
+                    "train_loss": epoch_terms.get("total", float("nan")) / n_steps,
+                    "val_score": score,
+                    "val_balanced_accuracy": detail.get("balanced_accuracy",
+                                                        float("nan")),
+                    "val_c_index": detail.get("c_index", float("nan")),
+                })
                 if verbose and (epoch + 1) % 20 == 0:
                     loss_str = " ".join(f"{k}={v:.3f}" for k, v in
                                         sorted(epoch_terms.items()) if k == "total")
@@ -306,6 +319,7 @@ class Experiment:
                           f"{swa_n} snapshots)")
             else:
                 model.load_state_dict(keep)
+        model._history = history
         return model
 
     # ------------------------------------------------------------------ #

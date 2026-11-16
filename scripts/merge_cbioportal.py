@@ -207,9 +207,25 @@ def merge_cohort(raw: str, cohort: str, keep: int) -> Optional[pd.DataFrame]:
     for blk in blocks.values():
         out = out.join(blk.reindex(keep_patients), how="left")
 
+    # CANCER_TYPE_ACRONYM must name the *cohort as loaded*, because
+    # mosaic.data.loader builds the tissue-of-origin label vocabulary from
+    # DataConfig.cohorts and matches it against this column. The clinical
+    # export usually ships its own acronym already (TCGA PanCanAtlas Cancer
+    # Type Acronym), and for a merged study such as "lung" that column is a
+    # mixture (LUAD / LUSC) rather than the cohort name -- so it is renamed
+    # out of the way instead of being dropped or silently reused.
+    for col in ("PATIENT_ID", "CANCER_TYPE_ACRONYM"):
+        if col in out.columns:
+            out = out.rename(columns={col: f"TCGA_{col}"})
     out.insert(0, "PATIENT_ID", out.index)
     out.insert(1, "CANCER_TYPE_ACRONYM", cohort.upper())
     out = out.reset_index(drop=True)
+
+    native = out.get("TCGA_CANCER_TYPE_ACRONYM")
+    if native is not None:
+        mix = native.astype(str).value_counts().to_dict()
+        print(f"  study's own acronym column: {mix} "
+              f"(kept as TCGA_CANCER_TYPE_ACRONYM; label uses {cohort.upper()})")
     return out
 
 

@@ -5,3 +5,5 @@ cache/
 synthetic/
 mosaic-pkg/
 *.pt
+raw/
+data_real/*.csv
