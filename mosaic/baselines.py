@@ -18,6 +18,10 @@ run against MOSAIC-GNN.
 
 from __future__ import annotations
 
+import contextlib
+import os
+import signal
+import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -60,6 +64,47 @@ def omic_blocks(x: np.ndarray, clinical: np.ndarray,
 # --------------------------------------------------------------------------- #
 # 1. Classical classifiers
 # --------------------------------------------------------------------------- #
+class _BaselineTimeout(Exception):
+    pass
+
+
+@contextlib.contextmanager
+def _time_budget(name: str, verbose: bool):
+    """Give one baseline a wall-clock budget, then move on.
+
+    At pan-cancer scale a single solver can stall the whole panel: fitting
+    multinomial L1 logistic regression with saga over 32 classes, ~8 700
+    training patients and 600 features ran for over twenty minutes without
+    finishing, and nothing is reported until every model in the panel has
+    run. One slow model must not cost the Cox and random-survival-forest
+    comparisons, which are the point of the table.
+
+    A model that exceeds the budget is recorded as skipped with the reason,
+    which is honest -- the comparison then says the model did not fit in the
+    time allowed rather than quietly reporting a number from a truncated fit.
+    Budget comes from MOSAIC_BASELINE_BUDGET_S (default 20 minutes); 0
+    disables it.
+    """
+    budget = int(os.environ.get("MOSAIC_BASELINE_BUDGET_S", "1200"))
+    if budget <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def _fire(signum, frame):
+        raise _BaselineTimeout(f"exceeded {budget}s budget")
+
+    old = signal.signal(signal.SIGALRM, _fire)
+    signal.alarm(budget)
+    t0 = time.time()
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+        if verbose and time.time() - t0 > 60:
+            print(f"  {name:<24} fit took {time.time() - t0:.0f}s", flush=True)
+
+
 def _classical_models(seed: int, n_features: int) -> Dict[str, object]:
     sc = lambda: StandardScaler(with_mean=False)
     models: Dict[str, object] = {
@@ -68,11 +113,19 @@ def _classical_models(seed: int, n_features: int) -> Dict[str, object]:
         # liblinear cannot fit a multiclass problem (n_classes >= 3), so with
         # a four-class target this baseline raised and was silently dropped
         # from the comparison panel entirely. saga handles L1 multinomially.
+        # saga is the only solver here that handles multinomial L1 and
+        # elastic net, and it is single-threaded and slow: at 32 classes,
+        # ~8 700 training patients and 600 features, max_iter=3000 ran past
+        # twenty minutes without returning and stalled the whole panel. 300
+        # iterations on standardised features is enough to converge in
+        # practice, and a baseline that fits is worth more to the comparison
+        # than one that times out and leaves a blank row. sklearn emits a
+        # ConvergenceWarning if it is not enough, which is visible in the log.
         "logistic_l1": Pipeline([("sc", sc()), ("clf", LogisticRegression(
-            max_iter=3000, C=0.1, penalty="l1", solver="saga",
+            max_iter=300, C=0.1, penalty="l1", solver="saga",
             class_weight="balanced"))]),
         "logistic_elasticnet": Pipeline([("sc", sc()), ("clf", LogisticRegression(
-            max_iter=3000, C=0.1, penalty="elasticnet", l1_ratio=0.5,
+            max_iter=300, C=0.1, penalty="elasticnet", l1_ratio=0.5,
             solver="saga", class_weight="balanced"))]),
         "linear_svm": Pipeline([("sc", sc()), ("clf", LinearSVC(
             C=0.05, class_weight="balanced", max_iter=5000))]),
@@ -477,7 +530,8 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
     # --- family 1: classical classifiers ---------------------------------- #
     for name, model in _classical_models(seed, feats.shape[1]).items():
         try:
-            model.fit(feats[train_idx][lab_tr], y[train_idx][lab_tr])
+            with _time_budget(name, verbose):
+                model.fit(feats[train_idx][lab_tr], y[train_idx][lab_tr])
             record(name, prob=_proba(model, feats[test_idx], n_classes))
         except Exception as err:                       # keep the suite running
             if verbose:
@@ -531,15 +585,39 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
     # --- family 4: survival models ---------------------------------------- #
     tr_s = train_idx[surv_tr]
     xtr, ttr, etr = feats[tr_s], time[tr_s], event[tr_s]
-    record("cox_lasso", risk=cox_penalised(xtr, ttr, etr, feats[test_idx], seed, 0.9))
-    record("cox_ridge", risk=cox_penalised(xtr, ttr, etr, feats[test_idx], seed, 0.0))
-    record("cox_clinical_only",
-           risk=cox_penalised(clinical[tr_s], ttr, etr, clinical[test_idx], seed, 0.0))
-    rsf = random_survival_forest(xtr, ttr, etr, feats[test_idx], seed)
-    if rsf is not None:
-        record("random_survival_forest", risk=rsf)
-    elif verbose:
-        print("  random_survival_forest   skipped (scikit-survival not installed)")
-    record("deepsurv", risk=deepsurv(xtr, ttr, etr, feats[test_idx], seed,
-                                     epochs=epochs, device=device))
+
+    # These run last and had no guard at all, which is the worst place for
+    # one: an exception or a stall in any of them lost the entire panel,
+    # including every classifier already fitted, because nothing is returned
+    # until the function ends. They are also the most important rows in the
+    # comparison -- whether a Cox model or a random survival forest beats
+    # MOSAIC-GNN on c-index is the question the table exists to answer -- so
+    # each is attempted under its own budget and recorded as skipped, with
+    # the reason, if it does not finish.
+    def _survival(name: str, fn):
+        try:
+            with _time_budget(name, verbose):
+                risk = fn()
+        except Exception as err:
+            if verbose:
+                print(f"  {name:<24} skipped ({type(err).__name__}: {err})",
+                      flush=True)
+            return
+        if risk is not None:
+            record(name, risk=risk)
+        elif verbose:
+            print(f"  {name:<24} skipped (unavailable)", flush=True)
+
+    _survival("cox_lasso",
+              lambda: cox_penalised(xtr, ttr, etr, feats[test_idx], seed, 0.9))
+    _survival("cox_ridge",
+              lambda: cox_penalised(xtr, ttr, etr, feats[test_idx], seed, 0.0))
+    _survival("cox_clinical_only",
+              lambda: cox_penalised(clinical[tr_s], ttr, etr,
+                                    clinical[test_idx], seed, 0.0))
+    _survival("random_survival_forest",
+              lambda: random_survival_forest(xtr, ttr, etr, feats[test_idx], seed))
+    _survival("deepsurv",
+              lambda: deepsurv(xtr, ttr, etr, feats[test_idx], seed,
+                               epochs=epochs, device=device))
     return metrics, preds
