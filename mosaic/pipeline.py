@@ -498,11 +498,40 @@ class Experiment:
                            os.path.join(cfg.train.out_dir,
                                         f"{cfg.tag}_r{rep}_f{fold}.pt"))
 
-        summary = self._summarise(fold_results)
-        with open(os.path.join(cfg.train.out_dir, f"{cfg.tag}_results.json"), "w") as fh:
-            json.dump({"config": cfg.to_dict(), "folds": fold_results,
-                       "summary": summary}, fh, indent=2, default=float)
+                # Write the summary after every fold, not only at the end. A
+                # fold here can cost hours, so a run that is interrupted --
+                # or that runs out of wall clock -- must still leave the folds
+                # it did finish in a readable form, with `folds_completed` and
+                # `complete` saying exactly how much of the schedule ran.
+                self._write_results(fold_results, rep, fold)
+
+        summary = self._write_results(fold_results)
         return {"folds": fold_results, "summary": summary}
+
+    def _write_results(self, fold_results: List[Dict[str, object]],
+                       rep: Optional[int] = None, fold: Optional[int] = None
+                       ) -> Dict[str, Dict[str, float]]:
+        """Serialise the folds finished so far; return their summary."""
+        cfg = self.cfg
+        summary = self._summarise(fold_results)
+        planned = cfg.train.n_repeats * cfg.train.outer_folds
+        done = len(fold_results)
+        payload = {
+            "config": cfg.to_dict(),
+            "folds": fold_results,
+            "summary": summary,
+            "folds_completed": done,
+            "folds_planned": planned,
+            "complete": done >= planned,
+        }
+        path = os.path.join(cfg.train.out_dir, f"{cfg.tag}_results.json")
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(payload, fh, indent=2, default=float)
+        os.replace(tmp, path)       # atomic: never leave a half-written file
+        if rep is not None:
+            print(f"[checkpoint] wrote {done}/{planned} folds to {path}")
+        return summary
 
     @staticmethod
     def _summarise(folds: List[Dict[str, object]]) -> Dict[str, Dict[str, float]]:

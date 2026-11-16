@@ -73,6 +73,10 @@ def main() -> None:
     ap.add_argument("--no-model", action="store_true",
                     help="only rebuild the tables that come straight from the "
                          "CLI JSON summaries (1, 3, 5, 6); train nothing")
+    ap.add_argument("--reuse-model", action="store_true",
+                    help="load the primary-fold checkpoint this script saved "
+                         "on an earlier pass instead of retraining it, which "
+                         "at the prescribed settings costs hours")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -180,8 +184,27 @@ def main() -> None:
     n_classes = max(int(sk.label.max()) + 1, 2)
     log(f"graph: {tensors.graph.summary()}  x={tuple(tensors.x.shape)}")
 
-    log("training the primary-fold model")
-    model = exp.train_fold(tensors, fit_idx, val_idx, n_classes)
+    ckpt = f"{args.out}/{args.tag}_primary_fold.pt"
+    model = None
+    if args.reuse_model and os.path.isfile(ckpt):
+        # The genes are re-selected from the same training fold with the same
+        # seed, so the checkpoint's gene axis must match what build_fold just
+        # produced; if it does not, the checkpoint is from another
+        # configuration and retraining is the only honest option.
+        state = torch.load(ckpt, map_location=exp.device, weights_only=False)
+        if list(state.get("genes", [])) == list(tensors.graph.genes):
+            model = exp.build_model(tensors, n_classes)
+            model.load_state_dict(state["state_dict"], strict=False)
+            log(f"reusing the primary-fold checkpoint {ckpt}")
+        else:
+            log("  !! checkpoint gene axis differs from this fold; retraining")
+    if model is None:
+        log("training the primary-fold model")
+        model = exp.train_fold(tensors, fit_idx, val_idx, n_classes)
+        torch.save({"state_dict": model.state_dict(),
+                    "genes": tensors.graph.genes,
+                    "modules": tensors.graph.modules.tolist()}, ckpt)
+        log(f"saved {ckpt}")
     result = exp.evaluate_fold(model, tensors, test_idx, train_idx)
     log(f"primary fold: bacc={result.get('balanced_accuracy', float('nan')):.4f} "
         f"auroc={result.get('auroc', float('nan')):.4f} "

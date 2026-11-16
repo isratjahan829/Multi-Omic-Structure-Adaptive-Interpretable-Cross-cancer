@@ -62,6 +62,12 @@ def section(target: str, runs: str) -> str:
     else:
         s = cv["summary"]
         n_folds = len(cv["folds"])
+        planned = cv.get("folds_planned")
+        if planned and not cv.get("complete", True):
+            A(f"**Incomplete: {n_folds} of {planned} planned folds finished** "
+              "(the run was stopped by the wall clock, not by an error). The "
+              "figures below average only the folds that ran, so their spread "
+              "understates what the full schedule would have shown.\n")
         A(f"Repeated stratified cross-validation, {n_folds} held-out folds. "
           "Mean +/- SD over folds.\n")
         rows = []
