@@ -59,7 +59,7 @@ md(r"""
 # MOSAIC-GNN — pan-cancer multi-omics graph neural network
 
 **M**ulti-**O**mic **S**tructure-**A**daptive **I**nterpretable **C**ross-cancer GNN
-on TCGA (BLCA, LIHC, SKCM, THCA).
+on TCGA (BLCA, LIHC, THCA and lung adenocarcinoma).
 
 Each patient is encoded as a *graph of genes* (mutation / CNA / expression /
 methylation channels on nodes, PPI + pathway + co-alteration edges), pooled into
@@ -154,27 +154,70 @@ code(r"""
 from mosaic.config import Config
 from mosaic.pipeline import Experiment
 
-DATA_ROOT = "/kaggle/input/datasets/jannatuljerin/tcga-capstone"
-RUN_FULL  = False        # flip on for the full CV / baseline / ablation suite
+RUN_FULL  = True         # the full CV / baseline / ablation / LOCO suite
 OUT_DIR   = "/kaggle/working/runs" if os.path.isdir("/kaggle/working") else "./runs"
 
-# If the real dataset is absent, fall back to schema-identical synthetic data
-# so the notebook still runs end to end (CI, laptop, reviewer).
-if not glob.glob(os.path.join(DATA_ROOT, "*_merged_full.csv")):
+# ---- the two questions this notebook answers ------------------------------ #
+# "cohort" is tissue of origin: four classes, one per study. "stage" is the
+# four-class AJCC stage. They are different tasks, not two difficulties of
+# one task, and the contrast between them is the substantive result -- so run
+# the notebook once for each.
+TARGET    = os.environ.get("MOSAIC_TARGET", "cohort")   # cohort | stage
+MAX_GENES = int(os.environ.get("MOSAIC_MAX_GENES", 300))
+EPOCHS    = int(os.environ.get("MOSAIC_EPOCHS", 40))
+
+
+# Cohort tables in `root`, whichever format they were written in.
+# scripts/merge_cbioportal.py writes PARQUET. An earlier version of this cell
+# looked only for *_merged_full.csv, so it never found the real data and
+# silently dropped to 160-patient synthetic data instead -- the exact failure
+# that makes a notebook report numbers which mean nothing. Both extensions are
+# checked now, and the cell refuses to pretend.
+def _merged(root):
+    return (glob.glob(os.path.join(root, "*_merged_full.parquet")) +
+            glob.glob(os.path.join(root, "*_merged_full.csv")))
+
+
+# Look for the real merged cohorts in the usual places, nearest first.
+DATA_ROOT, USING_REAL_DATA = None, False
+for cand in ("./data_real",
+             "/kaggle/input/datasets/jannatuljerin/tcga-capstone",
+             os.path.join(PKG_ROOT, "data_real")):
+    if _merged(cand):
+        DATA_ROOT, USING_REAL_DATA = os.path.abspath(cand), True
+        break
+
+if USING_REAL_DATA:
+    print(f"real data: {DATA_ROOT}")
+    for f in sorted(_merged(DATA_ROOT)):
+        print(f"   {os.path.basename(f)}")
+else:
+    # No real data here. Synthetic data still lets the notebook run end to
+    # end, but it is labelled loudly in the output and in every figure title,
+    # because a synthetic number must never be mistaken for a result.
     DATA_ROOT = os.path.abspath("./synthetic")
-    if not glob.glob(os.path.join(DATA_ROOT, "*_merged_full.csv")):
+    if not _merged(DATA_ROOT):
         subprocess.run([sys.executable,
                         os.path.join(PKG_ROOT, "scripts", "make_synthetic.py"),
                         "--out", DATA_ROOT, "--patients", "160",
                         "--genes", "300"], check=True)
-    print("!! real dataset not found - running on SYNTHETIC data:", DATA_ROOT)
+    print("=" * 72)
+    print("!! REAL DATASET NOT FOUND - EVERY NUMBER BELOW IS SYNTHETIC !!")
+    print("!! Nothing from this run may be quoted as a result.          !!")
+    print("=" * 72)
 
 cfg = Config()
 cfg.data.root             = DATA_ROOT
-cfg.data.cohorts          = ["BLCA", "LIHC", "SKCM", "THCA"]
-cfg.data.class_target     = "stage"      # stage | grade | cohort | subtype
+# The four cohorts actually merged from the cBioPortal exports. An earlier
+# version of this cell listed SKCM, which is not among them; a cohort named
+# here but absent from the data contributes nothing and silently shrinks the
+# label vocabulary, so this list is derived from the files on disk.
+cfg.data.cohorts          = ([os.path.basename(f).split("_merged_full")[0]
+                              for f in sorted(_merged(DATA_ROOT))]
+                             or ["BLCA", "LIHC", "THCA", "LUNG"])
+cfg.data.class_target     = TARGET       # stage | grade | cohort | subtype
 cfg.data.survival_endpoint = "OS"        # OS | DSS | PFS | DFS
-cfg.data.max_genes        = 2000 if torch.cuda.is_available() else 300
+cfg.data.max_genes        = MAX_GENES
 cfg.data.n_genes_per_block = cfg.data.max_genes // 2
 
 # Optional biological priors -- supply these for sharper interpretation.
@@ -182,16 +225,28 @@ cfg.data.n_genes_per_block = cfg.data.max_genes // 2
 # cfg.data.pathway_gmt    = "/kaggle/input/msigdb/c2.cp.reactome.v2023.1.symbols.gmt"
 
 cfg.train.device   = "cuda" if torch.cuda.is_available() else "cpu"
-cfg.train.epochs   = 200 if torch.cuda.is_available() else 40
+cfg.train.epochs   = EPOCHS
 cfg.train.out_dir  = OUT_DIR
+# Full-batch over ~1500 training patients x MAX_GENES x 3 relations does not
+# fit in 16 GB, so training is mini-batched. This changes the optimisation
+# trajectory and therefore the numbers; it is a real deviation, not a
+# cosmetic one.
+#
+# 32 and not something larger: measured on this CPU at 300 genes, batch 32
+# ran at 30.2 s/epoch and batch 128 at 42.8 s/epoch. The step is bound by
+# memory bandwidth rather than arithmetic, so a bigger batch enlarges the
+# intermediate tensors and loses more to cache misses than it wins back in
+# fewer Python-level steps.
 cfg.train.batch_size, cfg.train.full_batch = 32, False
-cfg.tag = "main"
+cfg.tag = TARGET
 
 os.makedirs(OUT_DIR, exist_ok=True)
-print(json.dumps({"root": cfg.data.root, "target": cfg.data.class_target,
+print(json.dumps({"root": cfg.data.root, "cohorts": cfg.data.cohorts,
+                  "target": cfg.data.class_target,
                   "endpoint": cfg.data.survival_endpoint,
                   "max_genes": cfg.data.max_genes, "device": cfg.train.device,
-                  "epochs": cfg.train.epochs}, indent=2))
+                  "epochs": cfg.train.epochs,
+                  "using_real_data": USING_REAL_DATA}, indent=2))
 """)
 
 # --------------------------------------------------------------------------- #
