@@ -234,7 +234,9 @@ class MogonetStyle(nn.Module):
         hs = []
         for k in self.enc:
             h = self.enc[k](blocks[k])
-            h = self.norm[k](h + F.gelu(self.gcn[k](adjs[k] @ h)))
+            # adjs[k] is sparse (see knn_adjacency), so the propagation uses a
+            # sparse matmul; `@` on a sparse operand would densify it.
+            h = self.norm[k](h + F.gelu(self.gcn[k](torch.sparse.mm(adjs[k], h))))
             hs.append(h)
         z = self.fuse(torch.cat(hs, dim=-1))
         return self.cls(z), self.risk(z).squeeze(-1)
@@ -277,18 +279,33 @@ class PatientGraphBaseline(nn.Module):
                 # pass -- which is enough to be OOM-killed on its own. The two
                 # per-node terms broadcast to the same (N, N) logits for the
                 # price of two (N, 1) vectors.
+                # Attention is scored only on the edges the graph actually
+                # holds (~k*N of them), never on the N^2 pairs it does not: a
+                # dense (N, N) logit matrix is 480 MB at N = 10 953 and
+                # autograd keeps it for the backward pass. The softmax is
+                # taken per destination row with scatter reductions, which is
+                # the same normalisation the dense masked_fill produced.
                 hid = h.shape[1]
                 w = self.att[i].weight                      # (1, 2H)
-                a_src = h @ w[:, :hid].t()                   # (N, 1)
-                a_dst = h @ w[:, hid:].t()                   # (N, 1)
-                logits = a_src + a_dst.t()                   # (N, N)
+                a_src = (h @ w[:, :hid].t()).squeeze(-1)     # (N,)
+                a_dst = (h @ w[:, hid:].t()).squeeze(-1)     # (N,)
+                r, c = adj.indices()[0], adj.indices()[1]
+                e = a_src[r] + a_dst[c]
                 if self.att[i].bias is not None:
-                    logits = logits + self.att[i].bias
-                logits = F.leaky_relu(logits, 0.2)
-                logits = logits.masked_fill(adj <= 0, float("-inf"))
-                agg = torch.softmax(logits, dim=1) @ h
+                    e = e + self.att[i].bias
+                e = F.leaky_relu(e, 0.2)
+                # Row-wise softmax, numerically stabilised by the per-row max.
+                n_nodes = h.shape[0]
+                row_max = torch.full((n_nodes,), float("-inf"), device=e.device,
+                                     dtype=e.dtype).index_reduce_(
+                    0, r, e.detach(), "amax", include_self=True)
+                ex = torch.exp(e - row_max[r])
+                denom = torch.zeros(n_nodes, device=e.device, dtype=e.dtype
+                                    ).index_add_(0, r, ex)
+                alpha = ex / denom[r].clamp_min(1e-16)
+                agg = torch.zeros_like(h).index_add_(0, r, alpha.unsqueeze(-1) * h[c])
             else:
-                agg = adj @ h
+                agg = torch.sparse.mm(adj, h)
             msg = lin(agg)
             if self.kind == "sage":
                 msg = msg + self.self_lins[i](h)
@@ -296,17 +313,54 @@ class PatientGraphBaseline(nn.Module):
         return self.cls(h), self.risk(h).squeeze(-1)
 
 
-def knn_adjacency(z: np.ndarray, k: int = 10) -> torch.Tensor:
+def knn_adjacency(z: np.ndarray, k: int = 10,
+                  block: int = 2048) -> torch.Tensor:
+    """Row-normalised symmetric kNN patient graph, as a SPARSE tensor.
+
+    A k-nearest-neighbour graph over N patients holds about k*N edges -- some
+    110 000 at N = 10 953, k = 10. Materialising it as a dense N x N matrix
+    instead costs 960 MB in float64, and this function used to build four such
+    matrices in a row (`sim`, `adj`, its transpose-maximum, and the torch
+    copy). With one graph per omic block for the MOGONET-style baseline plus
+    one for the patient-graph family, the panel was certain to be OOM-killed
+    at pan-cancer scale -- taking the Cox and random-survival-forest results
+    down with it, since nothing is returned until every model has run.
+
+    The similarity matrix is also never needed whole: it is reduced to k
+    indices per row, so it is computed in row blocks and discarded as it goes.
+    Peak memory is then O(block * N) rather than O(N^2).
+    """
+    n = len(z)
     zn = z / (np.linalg.norm(z, axis=1, keepdims=True) + 1e-8)
-    sim = zn @ zn.T
-    np.fill_diagonal(sim, -np.inf)
-    k = min(k, max(1, len(z) - 1))
-    idx = np.argpartition(-sim, k - 1, axis=1)[:, :k]
-    adj = np.zeros_like(sim)
-    np.put_along_axis(adj, idx, 1.0, axis=1)
-    adj = np.maximum(adj, adj.T) + np.eye(len(z))
-    adj = adj / adj.sum(1, keepdims=True)
-    return torch.tensor(adj, dtype=torch.float32)
+    k = min(k, max(1, n - 1))
+
+    rows, cols = [], []
+    for start in range(0, n, block):
+        stop = min(start + block, n)
+        sim = zn[start:stop] @ zn.T                      # (b, N)
+        # Never let a patient be its own neighbour; the self-loop is added
+        # explicitly below so every row has one regardless of k.
+        for local, globl in enumerate(range(start, stop)):
+            sim[local, globl] = -np.inf
+        idx = np.argpartition(-sim, k - 1, axis=1)[:, :k]
+        rows.append(np.repeat(np.arange(start, stop), k))
+        cols.append(idx.reshape(-1))
+        del sim
+    r = np.concatenate(rows)
+    c = np.concatenate(cols)
+
+    # Symmetrise (union of the two directions) and add self-loops, then
+    # row-normalise -- the same graph the dense version produced.
+    r_sym = np.concatenate([r, c, np.arange(n)])
+    c_sym = np.concatenate([c, r, np.arange(n)])
+    pairs = np.unique(np.stack([r_sym, c_sym], axis=1), axis=0)
+    r_sym, c_sym = pairs[:, 0], pairs[:, 1]
+    deg = np.bincount(r_sym, minlength=n).astype(np.float32)
+    vals = (1.0 / np.maximum(deg, 1.0))[r_sym]
+
+    idx_t = torch.tensor(np.stack([r_sym, c_sym]), dtype=torch.long)
+    return torch.sparse_coo_tensor(
+        idx_t, torch.tensor(vals, dtype=torch.float32), (n, n)).coalesce()
 
 
 # --------------------------------------------------------------------------- #
