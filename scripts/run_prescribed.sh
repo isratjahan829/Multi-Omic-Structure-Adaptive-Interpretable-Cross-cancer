@@ -38,12 +38,33 @@ common () {   # common <target> <out>
          --out "$2" --tag "$1"
 }
 
+MARKERS="${MARKERS:-runs_markers}"
+mkdir -p "$MARKERS"
+
+# This machine is reclaimed after a couple of hours of session inactivity, and
+# that kills whatever is running detached: the first attempt at this schedule
+# lost 3h20m of training that way, mid-fit, with nothing to show. So the script
+# has to be safe to start again from the top, as often as needed:
+#
+#   * a step that has already finished is skipped, by its marker file;
+#   * a step that was interrupted part-way starts again, but the training loop
+#     itself resumes from its own epoch-level checkpoint (see
+#     Experiment.train_fold), so at most the last few epochs are repeated.
+#
+# Together those mean the total work is bounded no matter how many times the
+# container is taken away.
 step () {
     local name="$1"; shift
+    local marker="$MARKERS/$name.done"
+    if [ -f "$marker" ]; then
+        echo "################ SKIP $name (finished $(cat "$marker")) ################"
+        return 0
+    fi
     echo "################ START $name  $(date -u +%H:%M:%S) ################"
     local t0=$SECONDS
     if "$@"; then
         echo "################ DONE $name after $((SECONDS - t0))s ################"
+        date -u +"%Y-%m-%dT%H:%M:%SZ" > "$marker"
     else
         echo "################ FAILED $name after $((SECONDS - t0))s ################"
     fi

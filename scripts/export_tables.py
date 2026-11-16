@@ -200,7 +200,8 @@ def main() -> None:
             log("  !! checkpoint gene axis differs from this fold; retraining")
     if model is None:
         log("training the primary-fold model")
-        model = exp.train_fold(tensors, fit_idx, val_idx, n_classes)
+        model = exp.train_fold(tensors, fit_idx, val_idx, n_classes,
+                               resume_path=f"{args.out}/{args.tag}_resume.pt")
         torch.save({"state_dict": model.state_dict(),
                     "genes": tensors.graph.genes,
                     "modules": tensors.graph.modules.tolist()}, ckpt)

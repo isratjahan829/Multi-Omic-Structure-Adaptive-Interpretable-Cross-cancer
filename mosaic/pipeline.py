@@ -11,6 +11,7 @@ training fold; the held-out fold is only ever passed through `transform`.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import time as _time
@@ -50,6 +51,25 @@ class FoldTensors:
     edge_weight: torch.Tensor
     assign: torch.Tensor
     graph: G.GeneGraph
+
+
+def _fit_fingerprint(t: FoldTensors, train_idx: np.ndarray,
+                     val_idx: np.ndarray, n_classes: int, epochs: int,
+                     seed: int) -> str:
+    """Identify a fit, so a resume checkpoint is never applied to another one.
+
+    Everything that would change the optimisation goes in: the gene axis, the
+    exact training and validation rows, the class count, the epoch budget and
+    the seed. Two fits that agree on all of these are the same fit.
+    """
+    h = hashlib.sha256()
+    for part in (",".join(map(str, t.graph.genes)),
+                 ",".join(map(str, np.sort(np.asarray(train_idx)))),
+                 ",".join(map(str, np.sort(np.asarray(val_idx)))),
+                 f"{n_classes}|{epochs}|{seed}|{tuple(t.x.shape)}"):
+        h.update(part.encode())
+        h.update(b"\x00")
+    return h.hexdigest()
 
 
 class Experiment:
@@ -192,7 +212,23 @@ class Experiment:
 
     def train_fold(self, t: FoldTensors, train_idx: np.ndarray,
                    val_idx: np.ndarray, n_classes: int,
-                   verbose: bool = True) -> MosaicGNN:
+                   verbose: bool = True,
+                   resume_path: Optional[str] = None) -> MosaicGNN:
+        """Train one fold.
+
+        `resume_path` makes a long fit survive being killed. The full
+        optimisation state is written there every few epochs and picked up
+        again on the next call, so a run that is interrupted -- by a wall
+        clock, a container being reclaimed, an OOM -- restarts from the last
+        saved epoch instead of from scratch. At ~240 s/epoch a 120-epoch fit
+        takes eight hours, which is longer than this machine stays alive
+        unattended, so without this the fit can never finish at all.
+
+        The checkpoint records a fingerprint of everything that defines the
+        fit (gene axis, split, class count, epoch budget). A checkpoint that
+        does not match is ignored rather than loaded, so a resume can never
+        silently mix two different folds' weights.
+        """
         cfg = self.cfg
         model = self.build_model(t, n_classes)
 
@@ -220,7 +256,63 @@ class Experiment:
         rng = np.random.default_rng(cfg.train.seed)
         bs = len(train_idx) if cfg.train.full_batch else cfg.train.batch_size
 
-        for epoch in range(cfg.train.epochs):
+        fingerprint = _fit_fingerprint(t, train_idx, val_idx, n_classes,
+                                       cfg.train.epochs, cfg.train.seed)
+        start_epoch = 0
+        save_every = max(every, 10)
+        if resume_path is not None and os.path.isfile(resume_path):
+            try:
+                ck = torch.load(resume_path, map_location=self.device,
+                                weights_only=False)
+            except Exception as err:
+                print(f"  !! could not read {resume_path} ({err}); "
+                      "starting this fit from scratch")
+                ck = None
+            if ck is not None and ck.get("fingerprint") != fingerprint:
+                print("  !! checkpoint describes a different fit; "
+                      "starting this fit from scratch")
+            elif ck is not None:
+                model.load_state_dict(ck["model"])
+                opt.load_state_dict(ck["opt"])
+                sched.load_state_dict(ck["sched"])
+                scaler.load_state_dict(ck["scaler"])
+                rng.bit_generator.state = ck["rng"]
+                best_score = ck["best_score"]
+                best_state = ck["best_state"]
+                stale = ck["stale"]
+                history = ck["history"]
+                swa_state = ck["swa_state"]
+                swa_n = ck["swa_n"]
+                start_epoch = ck["next_epoch"]
+                print(f"  resumed from {resume_path} at epoch "
+                      f"{start_epoch + 1}/{cfg.train.epochs} "
+                      f"(best so far {best_score:.4f})")
+                if start_epoch >= cfg.train.epochs:
+                    print("  the saved fit is already complete")
+
+        def _save(next_epoch: int) -> None:
+            if resume_path is None:
+                return
+            payload = {
+                "fingerprint": fingerprint,
+                "next_epoch": next_epoch,
+                "model": model.state_dict(),
+                "opt": opt.state_dict(),
+                "sched": sched.state_dict(),
+                "scaler": scaler.state_dict(),
+                "rng": rng.bit_generator.state,
+                "best_score": best_score,
+                "best_state": best_state,
+                "stale": stale,
+                "history": history,
+                "swa_state": swa_state,
+                "swa_n": swa_n,
+            }
+            tmp = resume_path + ".tmp"
+            torch.save(payload, tmp)
+            os.replace(tmp, resume_path)   # atomic: never a half-written file
+
+        for epoch in range(start_epoch, cfg.train.epochs):
             model.train()
             perm = rng.permutation(train_idx)
             p = epoch / max(cfg.train.grl_warmup, 1)
@@ -296,8 +388,10 @@ class Experiment:
                     best_state = copy.deepcopy(model.state_dict())
                 else:
                     stale += every
-                    if stale >= cfg.train.patience:
-                        break
+                if (epoch + 1) % save_every == 0:
+                    _save(epoch + 1)
+                if stale >= cfg.train.patience:
+                    break
 
         if best_state is not None:
             model.load_state_dict(best_state)
@@ -320,6 +414,13 @@ class Experiment:
             else:
                 model.load_state_dict(keep)
         model._history = history
+        # The fit is finished, so the resume state is no longer wanted: leaving
+        # it behind would make the next fold think it had work to pick up.
+        if resume_path is not None and os.path.isfile(resume_path):
+            try:
+                os.remove(resume_path)
+            except OSError:
+                pass
         return model
 
     # ------------------------------------------------------------------ #
@@ -482,7 +583,11 @@ class Experiment:
                       f"(train={len(fit_idx)} val={len(val_idx)} test={len(test_idx)})")
                 tensors, _, _ = self.build_fold(train_idx)
                 n_classes = max(int(self.skeleton.label.max()) + 1, 2)
-                model = self.train_fold(tensors, fit_idx, val_idx, n_classes)
+                model = self.train_fold(
+                    tensors, fit_idx, val_idx, n_classes,
+                    resume_path=os.path.join(
+                        cfg.train.out_dir,
+                        f"{cfg.tag}_resume_r{rep}f{fold}.pt"))
                 res = self.evaluate_fold(model, tensors, test_idx, train_idx)
                 res["repeat"], res["fold"] = rep, fold
                 res["seconds"] = round(_time.time() - t0, 1)
