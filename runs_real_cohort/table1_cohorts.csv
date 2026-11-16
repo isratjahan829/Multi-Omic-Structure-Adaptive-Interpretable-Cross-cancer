@@ -1,0 +1,5 @@
+cohort,patients,blocks,genes_per_block,events,event_rate,median_OS_months,labelled
+BLCA,411,"cna, exp, mut","3000, 3000, 3000",181,0.44,17.6,411
+LIHC,372,"cna, exp, mut","3000, 3000, 3000",131,0.352,19.6,372
+THCA,499,"cna, exp, mut","3000, 3000, 3000",16,0.032,31.0,499
+LUNG,566,"cna, exp, mut","3000, 3000, 3000",186,0.329,21.5,566
