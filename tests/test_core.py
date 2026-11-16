@@ -251,3 +251,33 @@ def test_clinical_residual_nests_a_linear_model():
     with torch.no_grad():
         risk = model(x, clin, ei, et, ew).risk
     assert risk[-1] > risk[0]
+
+
+def test_cohort_table_is_found_whatever_the_extension(tmp_path):
+    """A parquet export must not fall through to "dataset not found".
+
+    A real run once reported `{0: 401}` -- one cohort, synthetic fallback --
+    because discovery only tried the .csv template while the data on disk was
+    parquet. Silent fallback to synthetic data is the worst possible failure
+    here, so this is checked explicitly.
+    """
+    import pandas as pd
+
+    from mosaic.config import DataConfig
+    from mosaic.data.loader import cohort_path, read_table, table_columns
+
+    cfg = DataConfig()
+    cfg.root = str(tmp_path)
+    frame = pd.DataFrame({"PATIENT_ID": ["p1", "p2"], "MUT_TP53": [0, 1]})
+
+    frame.to_parquet(tmp_path / "BLCA_merged_full.parquet", index=False)
+    frame.to_csv(tmp_path / "LIHC_merged_full.csv", index=False)
+    frame.to_csv(tmp_path / "SKCM_merged_full.csv.gz", index=False)
+
+    for cohort in ("BLCA", "LIHC", "SKCM"):
+        path = cohort_path(cohort, cfg)
+        assert path is not None, f"{cohort} not discovered"
+        assert "MUT_TP53" in table_columns(path)
+        assert len(read_table(path)) == 2
+
+    assert cohort_path("THCA", cfg) is None

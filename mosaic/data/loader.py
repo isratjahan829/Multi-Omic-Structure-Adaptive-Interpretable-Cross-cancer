@@ -60,6 +60,55 @@ class Cohort:
 # --------------------------------------------------------------------------- #
 # Header inspection
 # --------------------------------------------------------------------------- #
+# The merged tables may arrive as CSV, gzipped CSV or parquet. Trying only
+# the configured template is how a run once failed to find real parquet data
+# and silently continued on the synthetic fallback instead.
+COHORT_SUFFIXES = (".csv", ".parquet", ".pq", ".csv.gz")
+
+
+def cohort_path(cohort: str, cfg: DataConfig) -> Optional[str]:
+    """Locate a cohort's merged table, whatever extension it was written with."""
+    template = cfg.file_template.format(cohort=cohort)
+    stem = template
+    for suf in COHORT_SUFFIXES:
+        if stem.lower().endswith(suf):
+            stem = stem[: -len(suf)]
+            break
+
+    candidates = [template] + [stem + suf for suf in COHORT_SUFFIXES]
+    for name in candidates:
+        path = os.path.join(cfg.root, name)
+        if os.path.exists(path):
+            return path
+
+    # Last resort: a case-insensitive match anywhere under root, which covers
+    # exports that lower-case the cohort name.
+    for folder, _, files in os.walk(cfg.root):
+        for name in files:
+            low = name.lower()
+            if (low.startswith(f"{cohort.lower()}_merged_full")
+                    and low.endswith(COHORT_SUFFIXES)):
+                return os.path.join(folder, name)
+    return None
+
+
+def read_table(path: str, usecols: Optional[List[str]] = None) -> pd.DataFrame:
+    """Read a merged cohort table, dispatching on its extension."""
+    low = path.lower()
+    if low.endswith((".parquet", ".pq")):
+        return pd.read_parquet(path, columns=usecols)
+    return pd.read_csv(path, usecols=usecols, low_memory=False)
+
+
+def table_columns(path: str) -> List[str]:
+    """Column names only, without reading the payload."""
+    low = path.lower()
+    if low.endswith((".parquet", ".pq")):
+        import pyarrow.parquet as pq
+        return list(pq.ParquetFile(path).schema.names)
+    return pd.read_csv(path, nrows=0).columns.tolist()
+
+
 def scan_columns(path: str, cfg: DataConfig) -> Tuple[Dict[str, Dict[str, str]], List[str]]:
     """Map every omic column to (block, gene) without reading the payload.
 
@@ -68,7 +117,7 @@ def scan_columns(path: str, cfg: DataConfig) -> Tuple[Dict[str, Dict[str, str]],
     blocks : {block_name: {column_name: gene_symbol}}
     other  : columns that are not omic (clinical / identifiers)
     """
-    header = pd.read_csv(path, nrows=0).columns.tolist()
+    header = table_columns(path)
     blocks: Dict[str, Dict[str, str]] = {k: {} for k in cfg.omic_prefixes}
     other: List[str] = []
     for col in header:
@@ -193,15 +242,18 @@ def _coerce_block(values: np.ndarray, block: str) -> np.ndarray:
 
 def load_cohort(cohort: str, cfg: DataConfig,
                 label_vocab: Optional[Dict[str, int]] = None) -> Cohort:
-    path = os.path.join(cfg.root, cfg.file_template.format(cohort=cohort))
-    if not os.path.exists(path):
+    path = cohort_path(cohort, cfg)
+    if path is None:
         raise FileNotFoundError(
-            f"{path} not found. Set DataConfig.root to the dataset directory."
+            f"no merged table for cohort {cohort!r} under {cfg.root!r} "
+            f"(looked for {cfg.file_template.format(cohort=cohort)} and the "
+            f"same stem with extensions {', '.join(COHORT_SUFFIXES)}). "
+            "Set DataConfig.root to the dataset directory."
         )
 
     blocks_map, other_cols = scan_columns(path, cfg)
     usecols = other_cols + [c for m in blocks_map.values() for c in m]
-    df = pd.read_csv(path, usecols=usecols, low_memory=False)
+    df = read_table(path, usecols=usecols)
 
     # One row per patient; if a patient contributed several samples keep the
     # primary tumour, else the first occurrence.
