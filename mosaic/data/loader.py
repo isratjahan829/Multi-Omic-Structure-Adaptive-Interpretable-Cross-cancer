@@ -209,6 +209,24 @@ def build_labels(clinical: pd.DataFrame, cfg: DataConfig,
         if col not in clinical.columns:
             return np.full(len(clinical), -1), {}
         return parse_stage(clinical[col]), {"I": 0, "II": 1, "III": 2, "IV": 3}
+    if target == "stage_binary":
+        # Early (I-II) against late (III-IV) disease.
+        #
+        # Four-class AJCC is a poor target across cohorts and it is worth
+        # being explicit about why. The sub-stage vocabularies differ between
+        # studies, the classes are badly unbalanced, and the I/II and III/IV
+        # boundaries are the ones that carry prognostic meaning anyway --
+        # clinical practice and the staging literature both group them this
+        # way. Collapsing to two classes therefore asks a question the data
+        # can actually answer, and asks it in the form a clinician would.
+        col = "AJCC_PATHOLOGIC_TUMOR_STAGE"
+        if col not in clinical.columns:
+            return np.full(len(clinical), -1), {}
+        four = parse_stage(clinical[col])
+        out = np.full(len(four), -1, dtype=int)
+        out[(four == 0) | (four == 1)] = 0
+        out[(four == 2) | (four == 3)] = 1
+        return out, {"early_I_II": 0, "late_III_IV": 1}
     if target == "grade":
         return parse_grade(clinical.get("GRADE", pd.Series(dtype=str))), {
             "low": 0, "high": 1

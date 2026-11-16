@@ -288,7 +288,8 @@ def main(argv=None) -> None:
     p.add_argument("--config")
     p.add_argument("--root")
     p.add_argument("--cohorts")
-    p.add_argument("--target", choices=["stage", "grade", "cohort", "subtype"])
+    p.add_argument("--target", choices=["stage", "stage_binary", "grade",
+                                       "cohort", "subtype"])
     p.add_argument("--endpoint", choices=["OS", "DSS", "PFS", "DFS"])
     p.add_argument("--epochs", type=int)
     p.add_argument("--folds", type=int)
