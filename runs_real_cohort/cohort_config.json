@@ -26,8 +26,8 @@
         "MET_"
       ]
     },
-    "n_genes_per_block": 750,
-    "max_genes": 1500,
+    "n_genes_per_block": 150,
+    "max_genes": 300,
     "min_mut_freq": 0.02,
     "var_quantile": 0.5,
     "clinical_numeric": [
@@ -107,7 +107,7 @@
     "label_smoothing": 0.1
   },
   "train": {
-    "epochs": 120,
+    "epochs": 30,
     "lr": 0.001,
     "weight_decay": 0.001,
     "gene_dropout": 0.15,

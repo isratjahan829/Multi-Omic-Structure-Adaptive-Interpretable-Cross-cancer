@@ -128,8 +128,14 @@ def cmd_baseline(cfg: Config) -> None:
         try:
             with open(ppath, "rb") as fh:
                 prev = pickle.load(fh)
+            # The gene budget and target are part of the identity of these
+            # folds, not just the fold count and seed: reusing folds fitted at
+            # a different gene budget would silently average two different
+            # experiments into one panel.
             if prev.get("folds") == cfg.train.outer_folds and \
-                    prev.get("seed") == cfg.train.seed:
+                    prev.get("seed") == cfg.train.seed and \
+                    prev.get("max_genes") == cfg.data.max_genes and \
+                    prev.get("target") == cfg.data.class_target:
                 per_fold = prev["per_fold"]
                 per_fold_preds = prev["preds"]
                 per_fold_split = prev["splits"]
@@ -147,7 +153,9 @@ def cmd_baseline(cfg: Config) -> None:
             pickle.dump({"per_fold": per_fold, "preds": per_fold_preds,
                          "splits": per_fold_split,
                          "folds": cfg.train.outer_folds,
-                         "seed": cfg.train.seed}, fh)
+                         "seed": cfg.train.seed,
+                         "max_genes": cfg.data.max_genes,
+                         "target": cfg.data.class_target}, fh)
         os.replace(tmp, ppath)
 
     for fold, (tr, te) in enumerate(skf.split(idx, strat)):

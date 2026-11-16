@@ -18,15 +18,15 @@ LOG="${1:?usage: supervise.sh <logfile>}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
-pid="$(pgrep -f 'bash scripts/run_prescribed.sh' | head -1 || true)"
+pid="$(pgrep -f 'bash scripts/run_final.sh' | head -1 || true)"
 if [ -n "${pid:-}" ]; then
     echo "RUNNING pid=$pid elapsed=$(ps -o etimes= -p "$pid" | tr -d ' ')s"
 else
     mkdir -p "$(dirname "$LOG")"
-    setsid nohup bash scripts/run_prescribed.sh >> "$LOG" 2>&1 < /dev/null &
+    setsid nohup bash scripts/run_final.sh >> "$LOG" 2>&1 < /dev/null &
     disown
     sleep 2
-    newpid="$(pgrep -f 'bash scripts/run_prescribed.sh' | head -1 || true)"
+    newpid="$(pgrep -f 'bash scripts/run_final.sh' | head -1 || true)"
     echo "STARTED pid=${newpid:-unknown} log=$LOG"
 fi
 
