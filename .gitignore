@@ -7,3 +7,9 @@ mosaic-pkg/
 *.pt
 raw/
 data_real/*.csv
+
+# Per-fold baseline resume caches: working state, not results.
+# The final <tag>_baseline_preds.pkl carries the predictions the paired
+# bootstrap needs; these per-fold files only exist so an interrupted panel
+# can pick up at the next model.
+*_baseline_fold*.pkl
