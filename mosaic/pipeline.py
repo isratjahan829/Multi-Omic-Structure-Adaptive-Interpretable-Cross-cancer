@@ -393,6 +393,37 @@ class Experiment:
         res["logrank_p"] = p
         res["mean_predictive_entropy"] = float(pred["entropy"].mean())
 
+        # Per class, one row per label value. A pooled macro average hides the
+        # case that actually matters for a four-class stage task: a model can
+        # look respectable while never once predicting stage III.
+        per_class: Dict[str, Dict[str, float]] = {}
+        if m.any():
+            n_cls = pred["prob"].shape[1]
+            y_lab, p_lab = y[m], pred["prob"][m]
+            yhat = p_lab.argmax(1)
+            for c in range(n_cls):
+                support = int((y_lab == c).sum())
+                if support == 0:
+                    continue
+                tp = float(((y_lab == c) & (yhat == c)).sum())
+                fp = float(((y_lab != c) & (yhat == c)).sum())
+                fn = float(((y_lab == c) & (yhat != c)).sum())
+                tn = float(((y_lab != c) & (yhat != c)).sum())
+                prec = tp / (tp + fp) if tp + fp else float("nan")
+                rec = tp / (tp + fn) if tp + fn else float("nan")
+                f1 = (2 * prec * rec / (prec + rec)
+                      if np.isfinite(prec) and np.isfinite(rec) and prec + rec
+                      else float("nan"))
+                per_class[str(c)] = {
+                    "support": support,
+                    "precision": prec,
+                    "recall": rec,
+                    "f1": f1,
+                    "specificity": tn / (tn + fp) if tn + fp else float("nan"),
+                    "mean_predicted_prob": float(p_lab[:, c].mean()),
+                }
+        res["per_class"] = per_class
+
         per_cohort = {}
         coh = t.cohort.numpy()[test_idx]
         for ci_idx, name in enumerate(self.skeleton.cohort_names):
