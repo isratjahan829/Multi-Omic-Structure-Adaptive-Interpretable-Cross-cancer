@@ -265,10 +265,23 @@ class PatientGraphBaseline(nn.Module):
         h = self.inp(x)
         for i, (lin, norm) in enumerate(zip(self.lins, self.norms)):
             if self.kind == "gat":
-                n = h.shape[0]
-                pair = torch.cat([h.unsqueeze(1).expand(n, n, -1),
-                                  h.unsqueeze(0).expand(n, n, -1)], dim=-1)
-                logits = F.leaky_relu(self.att[i](pair).squeeze(-1), 0.2)
+                # The attention score is a linear map of the concatenated pair
+                # [h_i ; h_j], so it splits into a source term and a
+                # destination term:
+                #     att([h_i ; h_j]) = W[:, :H] h_i + W[:, H:] h_j + b
+                # Scoring that as a dense (N, N, 2H) tensor costs 3.5 GB at
+                # N = 1848, H = 128 -- and autograd keeps it for the backward
+                # pass -- which is enough to be OOM-killed on its own. The two
+                # per-node terms broadcast to the same (N, N) logits for the
+                # price of two (N, 1) vectors.
+                hid = h.shape[1]
+                w = self.att[i].weight                      # (1, 2H)
+                a_src = h @ w[:, :hid].t()                   # (N, 1)
+                a_dst = h @ w[:, hid:].t()                   # (N, 1)
+                logits = a_src + a_dst.t()                   # (N, N)
+                if self.att[i].bias is not None:
+                    logits = logits + self.att[i].bias
+                logits = F.leaky_relu(logits, 0.2)
                 logits = logits.masked_fill(adj <= 0, float("-inf"))
                 agg = torch.softmax(logits, dim=1) @ h
             else:
