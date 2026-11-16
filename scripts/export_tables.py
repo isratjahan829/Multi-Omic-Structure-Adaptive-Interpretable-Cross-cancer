@@ -22,12 +22,17 @@ import argparse
 import json
 import os
 import pickle
+import sys
 import time
 
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import StratifiedKFold
+
+# Run as `python scripts/export_tables.py` from the repository root: sys.path[0]
+# is then scripts/, not the root, so `mosaic` would not be importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mosaic.config import Config
 from mosaic.data.preprocess import stratification_key
@@ -65,6 +70,9 @@ def main() -> None:
     ap.add_argument("--permutations", type=int, default=10)
     ap.add_argument("--endpoint", default="OS")
     ap.add_argument("--skip-sample-size", action="store_true")
+    ap.add_argument("--no-model", action="store_true",
+                    help="only rebuild the tables that come straight from the "
+                         "CLI JSON summaries (1, 3, 5, 6); train nothing")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -110,6 +118,51 @@ def main() -> None:
     print(cohort_table.to_string(index=False), flush=True)
     labs, counts = np.unique(sk.label[sk.label >= 0], return_counts=True)
     log(f"pooled class distribution: {dict(zip(labs.tolist(), counts.tolist()))}")
+
+    # ---- tables 3 / 5 / 6: straight from the CLI JSON summaries ---------- #
+    # These need no model of their own, so they are written first and a
+    # `--no-model` pass can stop here (used to fold in the ablation, which the
+    # suite runs after the diagnostics because it is the most expensive step).
+    cv = load_json(f"{args.runs}/{args.tag}_results.json")
+    bl = load_json(f"{args.runs}/{args.tag}_baselines.json")
+    if bl is not None:
+        all_metrics = sorted({m for d in bl.values() for m in d})
+        baseline_table = pd.DataFrame(
+            {name: {m: d.get(m, {}).get("mean", np.nan)
+                    for m in all_metrics} for name, d in bl.items()}).T
+        if cv is not None:
+            baseline_table.loc["MOSAIC-GNN"] = {
+                m: cv["summary"].get(m, {}).get("mean", np.nan)
+                for m in all_metrics}
+        baseline_table.to_csv(f"{args.out}/table3_comparison_full.csv")
+        log("table3_comparison_full.csv")
+        show = [c for c in ("balanced_accuracy", "auroc", "c_index")
+                if c in baseline_table]
+        print(baseline_table[show].round(4).to_string(), flush=True)
+
+    abl = load_json(f"{args.runs}/{args.tag}_ablation.json")
+    if abl is not None:
+        ablation_table = pd.DataFrame(
+            {name: {k: s.get(k, {}).get("mean", np.nan)
+                    for k in ("balanced_accuracy", "auroc", "c_index")}
+             for name, s in abl.items()}).T
+        ablation_table.to_csv(f"{args.out}/table5_ablation.csv")
+        log("table5_ablation.csv")
+        print(ablation_table.round(4).to_string(), flush=True)
+
+    loco = load_json(f"{args.runs}/{args.tag}_loco.json")
+    if loco is not None:
+        loco_table = pd.DataFrame(
+            {held: {k: r.get(k, np.nan) for k in
+                    ("balanced_accuracy", "auroc", "c_index", "logrank_p")}
+             for held, r in loco.items()}).T
+        loco_table.to_csv(f"{args.out}/table6_loco.csv")
+        log("table6_loco.csv")
+        print(loco_table.round(4).to_string(), flush=True)
+
+    if args.no_model:
+        log("--no-model: stopping after the JSON-derived tables")
+        return
 
     # ---- the primary fold ------------------------------------------------- #
     strat = stratification_key(sk)
@@ -164,25 +217,6 @@ def main() -> None:
     if lc is not None and len(lc):
         lc.to_csv(f"{args.out}/tableS1b_learning_curve.csv")
         log(f"tableS1b_learning_curve.csv ({len(lc)} evaluations)")
-
-    # ---- table 3: baseline comparison panel ------------------------------ #
-    cv = load_json(f"{args.runs}/{args.tag}_results.json")
-    bl = load_json(f"{args.runs}/{args.tag}_baselines.json")
-    baseline_table = None
-    if bl is not None:
-        all_metrics = sorted({m for d in bl.values() for m in d})
-        baseline_table = pd.DataFrame(
-            {name: {m: d.get(m, {}).get("mean", np.nan)
-                    for m in all_metrics} for name, d in bl.items()}).T
-        if cv is not None:
-            baseline_table.loc["MOSAIC-GNN"] = {
-                m: cv["summary"].get(m, {}).get("mean", np.nan)
-                for m in all_metrics}
-        baseline_table.to_csv(f"{args.out}/table3_comparison_full.csv")
-        log("table3_comparison_full.csv")
-        show = [c for c in ("balanced_accuracy", "auroc", "c_index")
-                if c in baseline_table]
-        print(baseline_table[show].round(4).to_string(), flush=True)
 
     # ---- table 4: paired bootstrap, ours vs each baseline ---------------- #
     pkl = f"{args.runs}/{args.tag}_baseline_preds.pkl"
@@ -243,27 +277,6 @@ def main() -> None:
             print(paired.round(4).to_string(), flush=True)
     else:
         log(f"  !! no baseline predictions at {pkl}; table 4 omitted")
-
-    # ---- tables 5 / 6: ablation and leave-one-cancer-out ----------------- #
-    abl = load_json(f"{args.runs}/{args.tag}_ablation.json")
-    if abl is not None:
-        ablation_table = pd.DataFrame(
-            {name: {k: s.get(k, {}).get("mean", np.nan)
-                    for k in ("balanced_accuracy", "auroc", "c_index")}
-             for name, s in abl.items()}).T
-        ablation_table.to_csv(f"{args.out}/table5_ablation.csv")
-        log("table5_ablation.csv")
-        print(ablation_table.round(4).to_string(), flush=True)
-
-    loco = load_json(f"{args.runs}/{args.tag}_loco.json")
-    if loco is not None:
-        loco_table = pd.DataFrame(
-            {held: {k: r.get(k, np.nan) for k in
-                    ("balanced_accuracy", "auroc", "c_index", "logrank_p")}
-             for held, r in loco.items()}).T
-        loco_table.to_csv(f"{args.out}/table6_loco.csv")
-        log("table6_loco.csv")
-        print(loco_table.round(4).to_string(), flush=True)
 
     # ---- tables 7 / 8 / 9: interpretation -------------------------------- #
     from mosaic.explain import (collect_attention, export_ranked_gene_list,
