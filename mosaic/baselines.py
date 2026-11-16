@@ -65,8 +65,11 @@ def _classical_models(seed: int, n_features: int) -> Dict[str, object]:
     models: Dict[str, object] = {
         "logistic_l2": Pipeline([("sc", sc()), ("clf", LogisticRegression(
             max_iter=3000, C=0.1, class_weight="balanced"))]),
+        # liblinear cannot fit a multiclass problem (n_classes >= 3), so with
+        # a four-class target this baseline raised and was silently dropped
+        # from the comparison panel entirely. saga handles L1 multinomially.
         "logistic_l1": Pipeline([("sc", sc()), ("clf", LogisticRegression(
-            max_iter=3000, C=0.1, penalty="l1", solver="liblinear",
+            max_iter=3000, C=0.1, penalty="l1", solver="saga",
             class_weight="balanced"))]),
         "logistic_elasticnet": Pipeline([("sc", sc()), ("clf", LogisticRegression(
             max_iter=3000, C=0.1, penalty="elasticnet", l1_ratio=0.5,

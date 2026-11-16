@@ -43,19 +43,19 @@ step () {   # step <name> <command...>
     fi
 }
 
-step train    python -m mosaic.cli train    "${COMMON[@]}"
-step baseline python -m mosaic.cli baseline "${COMMON[@]}"
-step loco     python -m mosaic.cli loco     "${COMMON[@]}"
+step train    python -u -m mosaic.cli train    "${COMMON[@]}"
+step baseline python -u -m mosaic.cli baseline "${COMMON[@]}"
+step loco     python -u -m mosaic.cli loco     "${COMMON[@]}"
 
-step tables   python scripts/export_tables.py \
+step tables   python -u scripts/export_tables.py \
     --root "$ROOT" --target "$TARGET" --runs "$OUT" --out "$OUT" \
     --tag "$TARGET" --max-genes "$GENES" --epochs "$EPOCHS" \
     --folds "$FOLDS" --batch-size "$BATCH" --permutations 10
 
-step ablate   python -m mosaic.cli ablate   "${COMMON[@]}" --folds "$ABL_FOLDS"
+step ablate   python -u -m mosaic.cli ablate   "${COMMON[@]}" --folds "$ABL_FOLDS"
 
 # The ablation writes the last table, so the export is re-run to pick it up.
-step tables2  python scripts/export_tables.py \
+step tables2  python -u scripts/export_tables.py \
     --root "$ROOT" --target "$TARGET" --runs "$OUT" --out "$OUT" \
     --tag "$TARGET" --max-genes "$GENES" --epochs "$EPOCHS" \
     --folds "$FOLDS" --batch-size "$BATCH" --no-model
