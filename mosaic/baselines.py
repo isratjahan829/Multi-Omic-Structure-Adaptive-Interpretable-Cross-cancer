@@ -498,7 +498,7 @@ def deepsurv(xtr, ttr, etr, xte, seed: int = 0, epochs: int = 300,
 def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
                        n_classes: int, block_names: List[str], seed: int = 0,
                        device: str = "cpu", epochs: int = 300,
-                       verbose: bool = True
+                       verbose: bool = True, cache_path: Optional[str] = None
                        ) -> Tuple[Dict[str, Dict[str, float]],
                                   Dict[str, Dict[str, np.ndarray]]]:
     """Fit every baseline on one fold.
@@ -517,25 +517,62 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
     metrics: Dict[str, Dict[str, float]] = {}
     preds: Dict[str, Dict[str, np.ndarray]] = {}
 
+    # Per-MODEL checkpointing. Saving only once a whole fold has finished is
+    # not enough here: a fold is twenty-odd models over 10 953 patients, which
+    # takes longer than this container stays alive, so every restart threw the
+    # fold away and began again at the first model. The panel could never
+    # finish, however many times it ran. With a cache, each finished model is
+    # on disk immediately and a restart picks up at the next one.
+    if cache_path and os.path.isfile(cache_path):
+        try:
+            import pickle
+            with open(cache_path, "rb") as fh:
+                cached = pickle.load(fh)
+            if cached.get("test_hash") == int(np.asarray(test_idx).sum()):
+                metrics.update(cached["metrics"])
+                preds.update(cached["preds"])
+                if verbose and metrics:
+                    print(f"  resuming fold: {len(metrics)} model(s) already "
+                          f"done ({', '.join(sorted(metrics))})", flush=True)
+            elif verbose:
+                print("  cache describes a different fold; ignoring it")
+        except Exception as err:
+            if verbose:
+                print(f"  could not read {cache_path} ({err}); ignoring it")
+
+    def _save_cache():
+        if not cache_path:
+            return
+        import pickle
+        tmp = cache_path + ".tmp"
+        with open(tmp, "wb") as fh:
+            pickle.dump({"metrics": metrics, "preds": preds,
+                         "test_hash": int(np.asarray(test_idx).sum())}, fh)
+        os.replace(tmp, cache_path)
+
     def record(name, prob=None, risk=None):
         preds[name] = {"prob": prob, "risk": risk}
         metrics[name] = evaluate_predictions(y[test_idx], prob, time[test_idx],
                                              risk, event[test_idx], seed=seed)
+        _save_cache()
         if verbose:
             m = metrics[name]
             print(f"  {name:<24} bacc={m.get('balanced_accuracy', float('nan')):.3f} "
                   f"auroc={m.get('auroc', float('nan')):.3f} "
-                  f"c-index={m.get('c_index', float('nan')):.3f}")
+                  f"c-index={m.get('c_index', float('nan')):.3f}", flush=True)
 
     # --- family 1: classical classifiers ---------------------------------- #
     for name, model in _classical_models(seed, feats.shape[1]).items():
+        if name in metrics:
+            continue                              # already in the cache
         try:
             with _time_budget(name, verbose):
                 model.fit(feats[train_idx][lab_tr], y[train_idx][lab_tr])
             record(name, prob=_proba(model, feats[test_idx], n_classes))
         except Exception as err:                       # keep the suite running
             if verbose:
-                print(f"  {name:<24} skipped ({type(err).__name__}: {err})")
+                print(f"  {name:<24} skipped ({type(err).__name__}: {err})",
+                      flush=True)
 
     # --- family 2: neural fusion ------------------------------------------ #
     sc = StandardScaler().fit(feats[train_idx])
@@ -545,42 +582,49 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
           "e": torch.as_tensor(event, dtype=torch.float32, device=device)}
 
     xt = torch.tensor(fs, device=device)
-    mlp = _MLP(xt.shape[1], 128, n_classes).to(device)
-    prob, risk = _train_torch(mlp, tt, train_idx, test_idx,
-                              lambda m: m(xt), epochs, device=device, seed=seed)
-    record("mlp_early_fusion", prob, risk)
+    if "mlp_early_fusion" not in metrics:
+        mlp = _MLP(xt.shape[1], 128, n_classes).to(device)
+        prob, risk = _train_torch(mlp, tt, train_idx, test_idx,
+                                  lambda m: m(xt), epochs, device=device, seed=seed)
+        record("mlp_early_fusion", prob, risk)
 
     bt, dims = {}, {}
     for k, v in blocks.items():
         s = StandardScaler().fit(v[train_idx])
         bt[k] = torch.tensor(s.transform(v).astype(np.float32), device=device)
         dims[k] = v.shape[1]
-    late = LateFusion(dims, 128, n_classes).to(device)
-    prob, risk = _train_torch(late, tt, train_idx, test_idx,
-                              lambda m: m(bt), epochs, device=device, seed=seed)
-    record("late_fusion_mlp", prob, risk)
+    if "late_fusion_mlp" not in metrics:
+        late = LateFusion(dims, 128, n_classes).to(device)
+        prob, risk = _train_torch(late, tt, train_idx, test_idx,
+                                  lambda m: m(bt), epochs, device=device, seed=seed)
+        record("late_fusion_mlp", prob, risk)
 
-    adjs = {}
-    for k, v in bt.items():
-        z = v.cpu().numpy()
-        pca = PCA(n_components=min(32, z.shape[1], len(train_idx) - 1),
-                  random_state=seed).fit(z[train_idx])
-        adjs[k] = knn_adjacency(pca.transform(z), k=10).to(device)
-    mog = MogonetStyle(dims, 128, n_classes).to(device)
-    prob, risk = _train_torch(mog, tt, train_idx, test_idx,
-                              lambda m: m(bt, adjs), epochs, device=device, seed=seed)
-    record("mogonet_style", prob, risk)
+    if "mogonet_style" not in metrics:
+        adjs = {}
+        for k, v in bt.items():
+            z = v.cpu().numpy()
+            pca = PCA(n_components=min(32, z.shape[1], len(train_idx) - 1),
+                      random_state=seed).fit(z[train_idx])
+            adjs[k] = knn_adjacency(pca.transform(z), k=10).to(device)
+        mog = MogonetStyle(dims, 128, n_classes).to(device)
+        prob, risk = _train_torch(mog, tt, train_idx, test_idx,
+                                  lambda m: m(bt, adjs), epochs, device=device,
+                                  seed=seed)
+        record("mogonet_style", prob, risk)
 
     # --- family 3: patient-graph GNNs ------------------------------------- #
-    pca = PCA(n_components=min(64, fs.shape[1], len(train_idx) - 1),
-              random_state=seed).fit(fs[train_idx])
-    adj = knn_adjacency(pca.transform(fs), k=10).to(device)
-    for kind in ("gcn", "gat", "sage"):
-        net = PatientGraphBaseline(xt.shape[1], 128, n_classes, kind).to(device)
-        prob, risk = _train_torch(net, tt, train_idx, test_idx,
-                                  lambda m: m(xt, adj), epochs, device=device,
-                                  seed=seed)
-        record(f"patient_{kind}", prob, risk)
+    if any(f"patient_{k}" not in metrics for k in ("gcn", "gat", "sage")):
+        pca = PCA(n_components=min(64, fs.shape[1], len(train_idx) - 1),
+                  random_state=seed).fit(fs[train_idx])
+        adj = knn_adjacency(pca.transform(fs), k=10).to(device)
+        for kind in ("gcn", "gat", "sage"):
+            if f"patient_{kind}" in metrics:
+                continue
+            net = PatientGraphBaseline(xt.shape[1], 128, n_classes, kind).to(device)
+            prob, risk = _train_torch(net, tt, train_idx, test_idx,
+                                      lambda m: m(xt, adj), epochs, device=device,
+                                      seed=seed)
+            record(f"patient_{kind}", prob, risk)
 
     # --- family 4: survival models ---------------------------------------- #
     tr_s = train_idx[surv_tr]
@@ -595,6 +639,8 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
     # each is attempted under its own budget and recorded as skipped, with
     # the reason, if it does not finish.
     def _survival(name: str, fn):
+        if name in metrics:
+            return                                # already in the cache
         try:
             with _time_budget(name, verbose):
                 risk = fn()

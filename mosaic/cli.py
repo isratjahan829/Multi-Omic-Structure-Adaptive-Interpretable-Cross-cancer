@@ -171,7 +171,11 @@ def cmd_baseline(cfg: Config) -> None:
             tensors.x.numpy(), tensors.clinical.numpy(), data.label, data.time,
             data.event, tr, te, max(int(data.label.max()) + 1, 2),
             block_names=sorted(exp.skeleton.blocks),
-            seed=cfg.train.seed, device=str(exp.device))
+            seed=cfg.train.seed, device=str(exp.device),
+            # Per-model cache, so an interrupted fold resumes at the next
+            # model instead of refitting the whole panel.
+            cache_path=os.path.join(
+                cfg.train.out_dir, f"{cfg.tag}_baseline_fold{fold}.pkl"))
         per_fold.append(metrics)
         per_fold_preds.append(preds)
         per_fold_split.append((tr, te))
