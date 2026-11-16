@@ -80,15 +80,23 @@ tables () {   # tables <target> <out> <extra args...>
 
 mkdir -p runs_real_cohort runs_real_stage
 
-# ---- 1. primary fold + diagnostics for both targets --------------------- #
+# ---- 1. baseline panels ------------------------------------------------- #
+# These run FIRST, ahead of the MOSAIC-GNN fits, for two reasons. They are the
+# only step that answers the question the brief asks directly -- whether a Cox
+# model or a random survival forest beats MOSAIC-GNN on c-index -- and they
+# cost far less than the eight hours one GNN fit needs. They are also the step
+# that cannot resume: a baseline panel killed half way starts again from
+# nothing, so it wants the freshest, longest window available. The GNN fits
+# that follow accumulate progress across interruptions and so lose nothing by
+# waiting.
+step cohort_baseline python -u -m mosaic.cli baseline $(common cohort runs_real_cohort)
+step stage_baseline  python -u -m mosaic.cli baseline $(common stage  runs_real_stage)
+
+# ---- 2. primary fold + diagnostics for both targets --------------------- #
 step cohort_primary tables cohort runs_real_cohort \
     --permutations 0 --skip-sample-size
 step stage_primary  tables stage  runs_real_stage \
     --permutations 0 --skip-sample-size
-
-# ---- 2. baseline panels ------------------------------------------------- #
-step cohort_baseline python -u -m mosaic.cli baseline $(common cohort runs_real_cohort)
-step stage_baseline  python -u -m mosaic.cli baseline $(common stage  runs_real_stage)
 
 # ---- 3. paired tests, reusing the checkpoints from step 1 --------------- #
 step cohort_paired tables cohort runs_real_cohort \
