@@ -239,6 +239,36 @@ overlap with COSMIC Cancer Gene Census and OncoKB quantified rather than
 asserted, and pathway enrichment run on `runs_pan_stage/stage_binary_genes.rnk`
 with FDR reported. Neither has been done here, and neither is claimed.
 
+### The mutation channel is very nearly ignored
+
+Splitting mean absolute integrated gradients by omic block gives a result that
+has to be reported, because it qualifies the word "multi-omic" in the title:
+
+| Target | Mutation | Copy number | Expression |
+|---|---|---|---|
+| `cohort` | 0.00036 (**0.7%**) | 0.01201 (24.7%) | 0.03627 (74.6%) |
+| `stage_binary` | 0.00389 (**6.8%**) | 0.02551 (44.5%) | 0.02788 (48.7%) |
+
+On tissue of origin the mutation block carries under one percent of total
+attribution — roughly a hundredfold less than expression. On stage it rises to
+seven percent, still the smallest of the three by a wide margin. Whatever the
+model is integrating, it is overwhelmingly copy number and expression.
+
+Two readings are available and the data here does not separate them. The
+benign one is that binary mutation calls over a 468-gene panel are extremely
+sparse, so most patients carry no signal in most of those features and a
+continuous channel will dominate any gradient-based attribution for simple
+numerical reasons. The unwelcome one is that the fusion layer is effectively
+discarding a block, in which case the mutation channel is contributing
+parameters and compute without contributing information.
+
+Distinguishing them needs an ablation that drops the mutation block and
+measures what happens to held-out performance. That ablation has not been run.
+Until it is, the defensible statement is narrow: **gradient attribution is
+dominated by copy number and expression, and the contribution of the mutation
+block is unquantified.** A paper claiming balanced tri-omic integration on
+this evidence would be overclaiming, and the draft does not make that claim.
+
 ## Honest limitations
 
 1. **`LUAD` is lung adenocarcinoma only**, not a combined lung cohort. LUSC
@@ -587,6 +617,30 @@ _Not available: the run that produces this table did not complete._
 - trainable parameters: 275,190
 - training patients: 5,841
 - parameters per training patient: 47.1
+
+### Top genes by integrated gradients
+
+<details><summary>Top 15</summary>
+
+| gene    | module     |   gate_mean |   gate_std |   ig_abs |   ig_cna |   ig_exp |   ig_mut |
+|:--------|:-----------|------------:|-----------:|---------:|---------:|---------:|---------:|
+| CDKN2B  | MODULE_030 |      0.3814 |     0.0625 |   0.21   |   0.0957 |  -0.0703 |   0      |
+| PPP2R1A | MODULE_033 |      0.3083 |     0.0585 |   0.1546 |   0.0177 |  -0.1346 |   0      |
+| GNAS    | MODULE_046 |      0.3894 |     0.0981 |   0.1535 |   0.037  |  -0.1046 |  -0.0005 |
+| APC     | MODULE_014 |      0.2798 |     0.0309 |   0.1361 |  -0.0205 |   0.0843 |  -0.0005 |
+| NFE2L2  | MODULE_021 |      0.3025 |     0.0871 |   0.124  |   0.0147 |  -0.041  |  -0.0002 |
+| DNAJB1  | MODULE_010 |      0.2968 |     0.0742 |   0.1215 |  -0.0084 |   0.0313 |  -0.0002 |
+| AKT1    | MODULE_033 |      0.363  |     0.0932 |   0.1201 |   0.0049 |  -0.0589 |   0      |
+| NOTCH3  | MODULE_010 |      0.3292 |     0.0644 |   0.1167 |  -0.0078 |   0.0084 |   0.0009 |
+| YES1    | MODULE_010 |      0.3741 |     0.0871 |   0.1092 |   0.0126 |  -0.0129 |  -0.0001 |
+| PAK5    | MODULE_014 |      0.2201 |     0.0296 |   0.1061 |  -0.0072 |   0.0903 |  -0.0001 |
+| AGO2    | MODULE_045 |      0.505  |     0.1414 |   0.0843 |  -0.0051 |  -0.0379 |  -0.0003 |
+| NOTCH1  | MODULE_006 |      0.2153 |     0.0348 |   0.0824 |   0.005  |  -0.0596 |  -0.0001 |
+| CDKN2A  | MODULE_030 |      0.2218 |     0.0749 |   0.08   |   0.0457 |  -0.0132 |  -0.0003 |
+| MAPK1   | MODULE_061 |      0.4048 |     0.0916 |   0.0786 |   0.0118 |  -0.0544 |  -0.0006 |
+| PIK3R1  | MODULE_054 |      0.2637 |     0.0508 |   0.0767 |  -0.0084 |   0.0371 |  -0      |
+
+</details>
 
 ## Target: `stage_binary`
 

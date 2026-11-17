@@ -239,6 +239,36 @@ overlap with COSMIC Cancer Gene Census and OncoKB quantified rather than
 asserted, and pathway enrichment run on `runs_pan_stage/stage_binary_genes.rnk`
 with FDR reported. Neither has been done here, and neither is claimed.
 
+### The mutation channel is very nearly ignored
+
+Splitting mean absolute integrated gradients by omic block gives a result that
+has to be reported, because it qualifies the word "multi-omic" in the title:
+
+| Target | Mutation | Copy number | Expression |
+|---|---|---|---|
+| `cohort` | 0.00036 (**0.7%**) | 0.01201 (24.7%) | 0.03627 (74.6%) |
+| `stage_binary` | 0.00389 (**6.8%**) | 0.02551 (44.5%) | 0.02788 (48.7%) |
+
+On tissue of origin the mutation block carries under one percent of total
+attribution — roughly a hundredfold less than expression. On stage it rises to
+seven percent, still the smallest of the three by a wide margin. Whatever the
+model is integrating, it is overwhelmingly copy number and expression.
+
+Two readings are available and the data here does not separate them. The
+benign one is that binary mutation calls over a 468-gene panel are extremely
+sparse, so most patients carry no signal in most of those features and a
+continuous channel will dominate any gradient-based attribution for simple
+numerical reasons. The unwelcome one is that the fusion layer is effectively
+discarding a block, in which case the mutation channel is contributing
+parameters and compute without contributing information.
+
+Distinguishing them needs an ablation that drops the mutation block and
+measures what happens to held-out performance. That ablation has not been run.
+Until it is, the defensible statement is narrow: **gradient attribution is
+dominated by copy number and expression, and the contribution of the mutation
+block is unquantified.** A paper claiming balanced tri-omic integration on
+this evidence would be overclaiming, and the draft does not make that claim.
+
 ## Honest limitations
 
 1. **`LUAD` is lung adenocarcinoma only**, not a combined lung cohort. LUSC
