@@ -41,6 +41,10 @@ from mosaic.diagnostics import (generalisation_gap, learning_curves,
                                 permutation_test, sample_size_curve)
 from mosaic.pipeline import Experiment
 
+# Fallback only. The cohort set belongs to the run, not to this script: pass
+# --cohorts so that the tables are built over exactly the studies the model was
+# trained on. Leaving a hardcoded list as the silent default is how a table
+# ends up describing a different patient set from the numbers above it.
 COHORTS = ["BLCA", "LIHC", "THCA", "LUNG"]
 
 
@@ -63,6 +67,10 @@ def main() -> None:
     ap.add_argument("--runs", required=True, help="dir holding the CLI JSONs")
     ap.add_argument("--out", required=True)
     ap.add_argument("--tag", required=True)
+    ap.add_argument("--cohorts", default=",".join(COHORTS),
+                    help="comma-separated study acronyms, exactly the set the "
+                         "run used; defaults to the four-cohort smoke-test "
+                         "list, which is almost certainly not what you want")
     ap.add_argument("--max-genes", type=int, default=1500)
     ap.add_argument("--epochs", type=int, default=120)
     ap.add_argument("--folds", type=int, default=5)
@@ -83,7 +91,8 @@ def main() -> None:
 
     cfg = Config()
     cfg.data.root = args.root
-    cfg.data.cohorts = list(COHORTS)
+    cfg.data.cohorts = [c for c in
+                        (s.strip() for s in args.cohorts.split(",")) if c]
     cfg.data.class_target = args.target
     cfg.data.survival_endpoint = args.endpoint
     cfg.data.max_genes = args.max_genes
