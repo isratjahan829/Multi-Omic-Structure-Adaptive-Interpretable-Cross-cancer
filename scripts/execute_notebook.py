@@ -100,8 +100,32 @@ def main() -> int:
         "MKL_NUM_THREADS": str(args.threads),
     })
 
+    # Per-cell progress, printed as each cell finishes rather than only in the
+    # summary at the end. Without this the log goes silent for the whole run:
+    # a 30-minute training cell and a wedged kernel look exactly alike from
+    # outside, and the only way to tell them apart is to watch the kernel's
+    # CPU time and guess. The hook also saves the notebook as it goes, so a
+    # container reclaim costs at most one cell instead of the whole run.
+    t0 = time.time()
+
+    # nbclient's on_cell_executed is a traitlets Callable trait, not a method,
+    # so this is passed to the constructor rather than overridden in a
+    # subclass -- overriding it shadows the trait and never fires.
+    def cell_done(cell=None, cell_index=None, execute_reply=None, **kw):
+        outs = (cell or {}).get("outputs") or []
+        err = next((o for o in outs if o.get("output_type") == "error"), None)
+        tag = (f"ERROR {err.get('ename')}" if err
+               else ("ok" if outs else "no output"))
+        print(f"  [{time.time() - t0:7.0f}s] cell {cell_index} {tag}",
+              flush=True)
+        try:
+            nbformat.write(nb, args.out)
+        except Exception as werr:                      # never kill the run
+            print(f"    (interim save failed: {werr})", flush=True)
+
     client = NotebookClient(
         nb, timeout=args.cell_timeout, kernel_name="python3",
+        on_cell_executed=cell_done,
         # The kernel's working directory must be the repository root, not
         # notebooks/: the notebook looks for ./data_pan relative to where it
         # runs, and starting it in notebooks/ is what sent a previous execution
@@ -110,7 +134,6 @@ def main() -> int:
         allow_errors=True,          # a failing cell is recorded, not hidden
     )
 
-    t0 = time.time()
     failure = None
     try:
         client.execute()
@@ -157,9 +180,17 @@ def main() -> int:
               "./data_pan exists and holds *_merged_full.parquet, and that the "
               "kernel started in the repository root.", flush=True)
         return 2
-    print("\nno synthetic-fallback banner in the outputs: the run saw the "
-          "real dataset", flush=True)
-    return 1 if failure is not None else 0
+    # Absence of the banner is evidence the synthetic fallback did not fire.
+    # It is not positive proof that the real dataset was loaded -- a notebook
+    # that never reaches the loading cell also shows no banner. Say only what
+    # was checked.
+    print("\nno synthetic-fallback banner in the outputs: the synthetic "
+          "fallback did not fire", flush=True)
+    if failure is not None:
+        return 1
+    # An errored cell gets its own status so a caller can tell "finished with
+    # failures" from "finished clean" without parsing the log.
+    return 3 if errored else 0
 
 
 if __name__ == "__main__":
