@@ -23,21 +23,70 @@ Decide the claim from the tables, in this order:
    with Benjamini-Hochberg corrected q-values.
 3. Make the claim the `*_sig` columns support, and no stronger.
 
-If MOSAIC-GNN does not beat the best baseline at q < 0.05, do **not** write
-"outperforms". Write what is true. Two honest framings are available and both
-are publishable:
+### Those tables now exist, so here is the answer
 
-* **Structured multi-omics adds information over clinical covariates.** On
-  the pan-cancer data, penalised Cox on molecular + clinical features reached
-  c-index 0.779 against 0.734 for `cox_clinical_only` — a clinical-only
-  model is the baseline many multi-omics papers never report, and beating it
-  is a real result. State the gap and its uncertainty.
+This section used to end with "if MOSAIC-GNN does not beat the best baseline,
+do not write outperforms". Both runs have since completed and the question is
+settled. **MOSAIC-GNN does not win on classification on either target.** Do
+not write "outperforms". The numbers, from `table4_paired_tests.csv`:
+
+| | Baselines significantly better | MOSAIC-GNN better | Not distinguishable |
+|---|---|---|---|
+| `cohort`, balanced accuracy | **18 of 20** | 2 | 0 |
+| `stage_binary`, balanced accuracy | **8 of 20** | 2 | 10 |
+| `cohort`, c-index | **0 of 10** | 2 | 8 |
+| `stage_binary`, c-index | 1 of 10 | 1 | 8 |
+
+Read the two halves of that table differently. On classification the
+architecture loses, decisively on tissue of origin. On survival it is never
+significantly beaten on `cohort` and loses only to `cox_lasso` on stage. The
+survival side is where it is defensible.
+
+### The claims the tables support
+
+* **Structured multi-omics adds information over clinical covariates — and
+  this replicates.** MOSAIC-GNN significantly exceeds `cox_clinical_only` on
+  **both** targets: +0.040 on `cohort` and +0.051 on `stage_binary`, both
+  q < 0.001, paired on identical held-out patients. Penalised Cox shows the
+  same gap independently (0.779 against 0.734). A clinical-only model is the
+  baseline many multi-omics papers never report, and clearing it twice on
+  independently fitted targets is the strongest result in this work. **Lead
+  with this.**
 * **A saturation and difficulty result.** 32-class tissue of origin is
-  near-ceiling for every reasonable method (0.942 for plain logistic
+  near-ceiling for *conventional classifiers* (0.942 for plain logistic
   regression), while early-vs-late stage from the same molecular profiles is
   hard (0.685 for the best baseline). That contrast is a finding about what
-  bulk multi-omics encodes, and it is worth stating plainly rather than
-  burying.
+  bulk multi-omics encodes.
+
+  Word this carefully. An earlier draft said tissue of origin "cannot
+  separate architectures". That is false and the tables disprove it —
+  MOSAIC-GNN sits 19 points below logistic regression there, which is a very
+  clear separation. What is true is that the *conventional* classifiers are
+  bunched within a hundredth of each other, so the endpoint cannot rank
+  **them**.
+* **Informative predictive uncertainty**, offered as a secondary claim with
+  its limits attached. Selective prediction under MC dropout lifts accuracy
+  from 0.58 at full coverage to about 0.68 at 35–40% coverage. No baseline in
+  the panel emits calibrated uncertainty, so no paired test covers this. It
+  was measured on the reduced notebook fit only, has not been reproduced at
+  manuscript settings, and has not been compared against an
+  uncertainty-equipped baseline such as a deep ensemble. Claim it at exactly
+  that strength or leave it out.
+
+### Two things a reviewer will find if you do not declare them
+
+* **The cohort loss has a candidate mechanical cause.** The architecture
+  trains a cohort adversary through gradient reversal to strip cohort
+  identity from the shared representation, so the `cohort` endpoint scores it
+  on recovering what it was regularised to discard. State this as a testable
+  explanation, not a defence, and name the test: the `no_disentangle`
+  ablation. If that ablation has not run, say the explanation is untested.
+* **The mutation block contributes almost nothing.** Mean absolute integrated
+  gradients split by omic block give mutation 0.7% on `cohort` and 6.8% on
+  `stage_binary`, against 74.6% and 48.7% for expression. Either sparse
+  binary calls cannot compete with continuous channels in gradient
+  attribution, or the fusion layer is discarding a block. Do not claim
+  balanced tri-omic integration on this evidence.
 
 A benchmark paper that reports a negative or null result rigorously is
 reviewable. A paper that claims a win the statistics do not support is
@@ -135,10 +184,37 @@ Being first to state these is worth more than hoping they go unnoticed.
    and why, with the measured cost. Being explicit that 1500 genes × 120
    epochs was out of reach is far better than letting a reviewer wonder why
    the configuration looks modest.
+8. **The 32-class head is badly calibrated.** ECE 0.273 on `cohort` against
+   0.035 on `stage_binary`, with mean predictive entropy 1.896 nats. Those
+   probabilities are not usable as confidences without post-hoc
+   recalibration, which this work does not perform. Declaring this is
+   especially necessary because the manuscript claims informative
+   uncertainty on the binary head — a reviewer who finds good calibration
+   claimed in one place and ECE 0.273 in a table elsewhere will distrust
+   both.
+9. **The architecture loses on both classification endpoints.** 18 of 20
+   comparators are significantly better on `cohort` and 8 of 20 on
+   `stage_binary`. Put this in the abstract, not only in a table. A reviewer
+   who discovers it after reading a positive abstract will reject on
+   framing even if every number is correct.
 
 ---
 
 ## 6. Figures worth the space
+
+> **Before you build any figure, read `runs/README.md`.** The `runs/`
+> directory holds synthetic smoke-test output, and five of its tracked PNGs
+> carry exactly the filenames `build_manuscript.py` reads — `fig1_cohorts`,
+> `fig2_risk`, `fig3_classification`, `figS1_learning_curves`,
+> `figS2_sample_size`. Building with `--runs runs` yields a manuscript whose
+> prose quotes real results and whose figures come from invented data, with
+> nothing in the output flagging it. Build with `--runs runs_pan_cohort`.
+>
+> The pan-cancer runs produced **no** figures, so the current draft marks
+> every one as not run. That is the correct state: a missing figure is
+> visible, a wrong figure is not. The only figures from real data are in
+> `deliverables/notebook_figures/`, and they come from the reduced notebook
+> configuration — not quotable as manuscript results.
 
 In rough order of how much they earn:
 
