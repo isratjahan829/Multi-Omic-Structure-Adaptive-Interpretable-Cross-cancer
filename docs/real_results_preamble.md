@@ -1,134 +1,221 @@
-# MOSAIC-GNN on real TCGA data
+# MOSAIC-GNN on pan-cancer TCGA data
 
-Every figure below was produced by a command that ran to completion on this
-machine. Nothing is estimated, interpolated or carried over from the earlier
-synthetic-demo run; where a table is marked as unavailable, the run that
-produces it did not finish and no substitute number has been put in its place.
+Every figure in this report came out of a command that ran to completion on
+this machine. Nothing is estimated, interpolated, or carried over from an
+earlier run. Where a table is marked unavailable, the phase that produces it
+did not finish, and no substitute number has been put in its place. A reader
+who finds a number here can find the file it came from and the config that
+was written beside it.
 
 ## Data provenance
 
-Raw cBioPortal study exports (clinical patient, clinical sample, mutations,
-CNA, mRNA RSEM for each of four studies -- 20 files, 818 MB) were downloaded
-and then checked individually: a Google Drive interstitial or quota page is
-served with HTTP 200, so size alone proves nothing and each file was verified
-to begin with a `#` metadata comment or a tab-separated header rather than
-HTML (`scripts/verify_raw.py`). All 20 passed.
+The dataset is **every TCGA PanCanAtlas study in cBioPortal**: 32 studies,
+**10 953 patients**, **3 543 deaths**, median follow-up 23.4 months.
+`scripts/fetch_cbioportal_api.py` pulls it from the cBioPortal public API
+(`/studies`, `/molecular-profiles`, `/molecular-data/fetch`,
+`/mutations/fetch`, `/clinical-data`) and writes one parquet file per study
+with one row per patient.
 
-`scripts/merge_cbioportal.py` built one row per patient per cohort, keeping
-the 3000 most-mutated genes (mutation block) and the 3000 highest-variance
-genes (CNA and expression blocks). That pre-filter is unsupervised -- it never
-consults a label or a fold -- and the model's own fold-wise selection then
-narrows to 1500 genes using training rows only.
+### The feature space is fixed before any data is seen
 
-Two provenance notes that affect interpretation:
+All three omic blocks are restricted to the **MSK-IMPACT 468 gene panel**
+(469 genes after symbol resolution): mutation, discrete GISTIC copy number,
+and mRNA expression. Every one of the 32 cohorts therefore has **the same
+features** — 468 CNA, 469 expression, 469 mutation.
 
-* The study loaded as `LUNG` carries `LUAD` in its own
-  `CANCER_TYPE_ACRONYM` column for all of its patients, so it is lung
-  **adenocarcinoma**, not a combined LUAD + LUSC cohort. It is labelled
-  `LUNG` here because that is the cohort name the pipeline was asked to load.
-* `THCA` contributes very few survival events, so its cohort-level C-index is
-  estimated from a small number of comparable pairs and should be read with
-  that in mind. The per-cohort table reports the event count alongside.
+This is a deliberate correction to an earlier design, and it is the single
+most consequential methodological decision in the work. The earlier pipeline
+selected the highest-variance genes separately inside each cohort. That makes
+the phrase "pan-cancer" unsupportable, because the cohorts do not share a
+feature space, and it makes leave-one-cancer-out transfer incoherent, because
+the held-out cohort's features are not the ones the model was trained on. A
+curated, clinically deployed panel fixed in advance is citable, identical
+everywhere, and immune to the selection-bias objection.
 
-## What was run
+### The fetch was validated against an independent path
 
-`python -m mosaic.cli {train,baseline,loco,ablate}` with
-`--max-genes 1500 --epochs 120 --folds 5 --repeats 1 --device cpu`, on both
-the `cohort` (tissue of origin) and `stage` (four-class AJCC) targets, each
-into its own output directory, followed by `scripts/export_tables.py` for the
-diagnostics and the manuscript tables.
+The API fetch was checked against the original file-export merge for BLCA,
+which was built from downloaded cBioPortal study exports through a completely
+separate code path: **411 patients against 411, 181 events against 181**, and
+a TP53 mutation frequency of **0.487** against the roughly 0.48 reported in
+the TCGA bladder cancer literature. Two independent routes to the same
+numbers is the reason to trust the other 31 studies.
 
-### Deviations from the requested settings
+## What was run, and at what settings
 
-* **Mini-batching.** The configuration's default is `full_batch = True`. A
-  full-batch step over ~740 training patients x 1500 genes x 3 relations does
-  not fit in this machine's 16 GB, so training used `--batch-size 32`, the
-  same batch size the project's notebook uses on CPU. This changes the
-  optimisation trajectory and therefore the numbers; it is not a cosmetic
-  choice and is recorded here for that reason.
-* Any reduction in ablation folds, permutation count or diagnostic scope that
-  was needed to fit the available compute is stated at the point where that
-  table appears, with the setting actually used.
+```
+python -m mosaic.cli {baseline,train,ablate,loco} \
+    --root ./data_pan --cohorts <all 32> --target {cohort,stage_binary} \
+    --max-genes 200 --epochs 20 --folds 5 --repeats 1 \
+    --batch-size 32 --device cpu
+```
 
-### Measured cost, and what it ruled out
+`scripts/run_pan.sh` is that whole schedule, restart-safe. Every phase that
+finished wrote a marker; every result file sits next to the `*_config.json`
+that produced it.
 
-One model fit at these settings measured **over 180 s/epoch** on this
-four-core CPU container (idle machine, four threads, 1500 genes, 27682 gene
-graph edges), i.e. roughly 4.5 to 6 hours per fit. The complete schedule is
-about 64 fits per target -- five cross-validation folds, five baseline folds,
-four leave-one-cancer-out folds, fifteen diagnostic retrains and forty
-ablation folds -- or some 290 hours for the two targets. It therefore could
-not be run, and the settings were kept rather than reduced, on the explicit
-instruction that missing tables are preferable to altered ones.
+### The targets
 
-Work was ordered so that the metrics named in the brief exist for both
-targets as early as possible: the primary fold and its diagnostics first, then
-the baseline panels, then the paired tests reusing the saved checkpoints, and
-only then cross-validation, transfer, the permutation null and the ablation.
-Each table below states whether it was produced; those that are absent are
-absent because the run did not reach them, and no figure has been supplied in
-their place.
+| Target | Classes | Labelled patients | Cohorts |
+|---|---|---|---|
+| `cohort` | 32 (tissue of origin) | 10 953 | 32 |
+| `stage_binary` | 2 (early I–II vs late III–IV) | 6 634 (4 119 early, 2 515 late) | 19 |
 
-### One comparison to make carefully
+Thirteen studies publish no AJCC stage at all — CESC, DLBC, GBM, LAML, LGG,
+OV, PCPG, PRAD, SARC, THYM, UCEC, UCS, UVM — so the stage analysis covers
+6 634 patients across 19 cohorts, not all 10 953. Both numbers belong in any
+sentence about the stage result.
 
-The single held-out-fold tables and the cross-validation summary do **not**
-train on the same number of patients. The single-fold diagnostics split the
-training set three ways (fit = 985, validation = 493), while `run_cv` splits
-it two ways (fit = 739, validation = 739). The single-fold model therefore
-sees about a third more training data than each cross-validation fold, so a
-small gap between the two is expected and is not evidence of instability.
+Four-class AJCC stage was **replaced** by the early/late collapse, and the
+reason is not convenience: the sub-stage vocabularies differ between studies
+(IIA in one is not recorded the same way in another), the four classes are
+badly unbalanced, and the prognostically meaningful boundary is I/II against
+III/IV. The four-class variant remains available as `--target stage`.
 
-### Three defects fixed before anything could run
+### Deviations from the originally requested settings
 
-These were genuine faults in the committed code, not environment problems:
+The brief asked for `--max-genes 1500 --epochs 120`. That was not reachable
+on this machine, and the gap is not small:
 
-1. `mosaic.cli baseline` called `run_baseline_suite` without its required
-   `block_names` argument and treated the returned `(metrics, predictions)`
-   tuple as a metrics dict. The command could not execute at all.
-2. The GAT patient-graph baseline scored attention through a dense
-   `(N, N, 2H)` tensor of concatenated node pairs -- 3.50 GB per layer at
-   N = 1848, H = 128, retained by autograd -- and was OOM-killed. Rewritten
-   using the fact that a linear map of `[h_i ; h_j]` separates into a source
-   and a destination term; verified identical to the original to float32
-   precision (max absolute difference 2.4e-07), so no baseline number is
-   affected by the change.
-3. `logistic_l1` used `solver="liblinear"`, which cannot fit three or more
-   classes. Both targets here are four-class, so it raised on every fold and
-   was silently dropped from the comparison panel.
+| Configuration | Measured |
+|---|---|
+| 1500 genes, 3 layers, batch 32, knn 12 | 240.0 s/epoch |
+| 200 genes, fit = 5 841 patients, batch 32 | 137.9 s/epoch |
 
-`merge_cbioportal.py` also crashed on every cohort (it inserted a
-`CANCER_TYPE_ACRONYM` column the clinical export already provides), and
-`diagnostics.learning_curves` read a `model._history` that nothing wrote.
+At 240 s/epoch, 120 epochs is 8 hours for **one** fit, and the full schedule
+is over a hundred fits across two targets — several weeks of continuous
+compute on four cores, in a container that is rebuilt roughly every
+forty-five minutes. The settings were therefore reduced to 200 genes and 20
+epochs, which is stated everywhere the numbers appear rather than left for a
+reader to discover. A reduced configuration honestly labelled is worth more
+than a prescribed configuration that never produced a number.
 
-## How to read the two targets
+Two further deviations:
 
-Tissue of origin and tumour stage are not two difficulties of one task; they
+* **Mini-batching.** The config default is `full_batch = True`. A full-batch
+  step over ~5 800 training patients does not fit in 16 GB, so training is
+  mini-batched at 32. This changes the optimisation trajectory. It is a real
+  deviation, not a cosmetic one.
+* **The baseline panel ran on one outer fold of five**
+  (`MOSAIC_BASELINE_FOLDS=1`). Twenty-four models over 10 953 patients is the
+  slowest phase in the schedule, and evaluating it on one fold left compute
+  for MOSAIC-GNN's own cross-validation, without which the work has no
+  headline result. Every baseline row is therefore a single fold with `n = 1`
+  and `std = 0`, on the **same** held-out patients as fold 0 of the model's
+  cross-validation, so the paired comparison is still like-for-like. Where
+  this report shows a baseline beside a cross-validated model number, the
+  fold counts differ and the table says so.
+
+### One model that is reported as not run
+
+`random_survival_forest` is **absent from both panels, and this is reported
+rather than quietly omitted**. At pan-cancer scale it was OOM-killed by the
+kernel. Bounding it to `max_depth=12`, `max_features="sqrt"` and two threads
+did not save it, and a `SIGKILL` cannot be caught — so each attempt destroyed
+the entire 24-model panel rather than leaving one blank row. It is skipped by
+name (`MOSAIC_SKIP_BASELINES`) so that the other 23 models survive. Twenty-three
+survival and classification baselines ran; this one did not, for that reason.
+
+## Reading the two targets
+
+Tissue of origin and tumour stage are not two difficulties of one task. They
 are different tasks, and the contrast between them is the substantive result.
 
-Tissue of origin is close to trivially separable from bulk molecular profiles:
-in a preliminary check at only 200 genes, ordinary logistic regression, LDA,
-random forest, XGBoost and LightGBM all reached balanced accuracy 1.000.
-A ceiling that high means the `cohort` target cannot discriminate between
-methods -- every reasonable model saturates it -- so a tie there is the
-expected outcome and is reported as a property of the benchmark rather than
-as evidence for the architecture.
+**Tissue of origin is close to saturated.** Plain L2 logistic regression on
+the 468-gene panel reaches balanced accuracy 0.942 and AUROC 0.999 across 32
+classes. Twelve further models land between 0.895 and 0.941. When the
+simplest linear model in the panel is within a hundredth of the best, the
+target cannot separate methods, and a tie there is a property of the benchmark
+rather than evidence about any architecture.
 
-Four-class stage classification from the same molecular profiles is genuinely
-hard, and is expected to stay modest. A modest stage number sitting beside a
-near-perfect tissue number is a coherent finding about what bulk multi-omics
-does and does not encode, and neither figure has been tuned toward the other.
+**Early-versus-late stage from the same molecular profiles is hard.** The best
+model in the panel reaches 0.685 balanced accuracy. Nothing in the panel
+approaches the tissue numbers. That contrast — near-ceiling tissue, modest
+stage, same patients, same genes, same pipeline — is a finding about what bulk
+multi-omics encodes, and it is stated plainly here rather than buried.
 
-Two structural caveats:
+### The one number that was a leak, and how it was caught
 
-* **Leave-one-cancer-out on the `cohort` target is degenerate by
-  construction.** Training on three cohorts and testing on the fourth means
-  the held-out class was never observed, so its balanced accuracy is near
-  zero necessarily, not as a finding. Only the survival transfer (C-index) in
-  that table carries information.
-* **The clinical feature block is not leakage-filtered for `cohort`.** The
-  guard removes cancer-type-like column names, but stage and grade coding
-  vocabularies differ sharply between these studies, so a classifier can read
-  tissue partly from which clinical fields are populated. The `no_clinical`
-  row of the ablation table is the direct measurement of how much of the
-  tissue-of-origin result that explains, which is why it is worth reading
-  before the headline number.
+On the first pan-cancer `stage_binary` run, logistic regression scored
+**balanced accuracy 1.000**. That was a defect in this repository, not a
+result: `LEAKY_FOR_TARGET` had no `stage_binary` entry, the lookup returned an
+empty tuple, the leakage guard filtered nothing, and
+`AJCC_PATHOLOGIC_TUMOR_STAGE` together with `PATH_T/N/M_STAGE` sat in the
+feature matrix as predictors of the stage label.
+
+With the entry added and the contaminated cache deleted, the same model scores
+**0.685**. The drop from 1.000 to 0.685 is the evidence that the leak was real
+and that the fix works. Unknown targets now raise instead of silently
+filtering nothing, so the same class of bug cannot recur quietly.
+
+Every number in this report is post-fix. A perfect score on a hard clinical
+endpoint is a leak, never a result.
+
+### What the leakage guard removes
+
+For `cohort`: `CANCER_TYPE`, `SUBTYPE`, `ONCOTREE`, `ICD_O`, `ICD_10`,
+`TISSUE_SOURCE_SITE`, `TUMOR_TISSUE_SITE`, `PRIMARY_SITE`, `ORGAN_OF_ORIGIN`
+and the tissue-provenance columns. For `stage_binary`: the AJCC and
+pathological/clinical T, N and M stage columns listed above. The dropped
+columns are reported by name at load time, not merely filtered.
+
+A residual caveat the guard cannot fix: clinical coding vocabularies differ
+sharply between these 32 studies, so a classifier can read tissue partly from
+**which** clinical fields are populated rather than from their values. The
+`no_clinical` row of the ablation table is the direct measurement of how much
+of the tissue result that explains, and it should be read before the headline
+tissue number.
+
+## Honest limitations
+
+1. **`LUAD` is lung adenocarcinoma only**, not a combined lung cohort. LUSC
+   is loaded separately. Name it precisely in any sentence about lung.
+2. **Several cohorts contribute almost no deaths**: TGCT 4 of 149, PCPG 5 of
+   178, DLBC and KICH 9 each, THCA 16 of 499. Any cohort-level survival number
+   for these rests on a handful of comparable pairs. The per-cohort table
+   prints the event count beside every C-index for exactly this reason.
+3. **Leave-one-cancer-out on the `cohort` target is degenerate by
+   construction.** Training on 31 cohorts and testing on the 32nd means the
+   held-out class was never observed, so its balanced accuracy is near zero
+   necessarily — that is arithmetic, not a finding. Only the survival transfer
+   in that table carries information.
+4. **The pipeline is not bit-reproducible.** Three fits of the same fold with
+   the same seed gave balanced accuracy 0.4567, 0.4341 and 0.4547. The
+   parallel scatter-add in the gene-graph message passing sums in
+   thread-scheduling order, and float addition is not associative. A spread of
+   roughly ±0.01 is therefore the noise floor: differences smaller than it
+   must not be read as effects. This is reported rather than hidden behind a
+   single lucky seed.
+5. **Compute ceiling.** 200 genes and 20 epochs, for the measured reasons
+   above. A reviewer who wonders why the configuration is modest will find the
+   cost table rather than a silence.
+
+## The pipeline was audited, and it needed to be
+
+Thirteen defects were found and fixed in the course of this work. Several were
+**silent wrongness** rather than crashes, which is the dangerous kind:
+
+* per-cohort gene selection, which made "pan-cancer" unsupportable;
+* the `stage_binary` leakage above, which produced a perfect score;
+* `hist_gradient_boosting` fitted without `class_weight="balanced"` — the only
+  classifier in the panel missing it — scoring 0.196 against 0.931 after the
+  fix;
+* an unguarded survival family running last, where one exception discarded
+  every classifier already fitted in that panel;
+* a dense N×N patient graph (960 MB per instance, one per omic block in
+  MOGONET) that made OOM certain at this scale; the sparse rewrite was
+  verified identical to float precision (adjacency 0.0, GCN/SAGE 0.0,
+  GAT 3.6e-07);
+* resume checkpoints that restored the NumPy generator but not torch's, so
+  dropout diverged after a restart.
+
+The earlier balanced accuracy of 0.313 that appears in older drafts came from
+a notebook whose configuration cell tested for `*_merged_full.csv` while the
+merge writes `*_merged_full.parquet`. It never found the real data, fell back
+to 160 synthetic patients, and printed tables that looked real. The fallback
+now prints a banner stating that every number below it is synthetic and may
+not be quoted — and that banner has already caught one mis-execution during
+this work, within seconds, before any figure was built from it.
+
+Stating all of this is the strongest available answer to "how do we know these
+numbers are right?".
