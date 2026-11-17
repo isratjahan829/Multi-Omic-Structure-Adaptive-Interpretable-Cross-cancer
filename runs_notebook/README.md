@@ -43,9 +43,45 @@ yes, by this much, over this range — while noting that two points do not
 establish where the curve flattens, and nothing here shows the gap would
 close against the baselines, which were not similarly constrained.
 
-## A caveat on the cross-validation file
+## The cross-validation file
 
-`stage_binary_results.json` records `"complete": false` with
-`folds_completed: 1` of `folds_planned: 2`. The summary therefore averages one
-fold and its standard deviations are all 0.0000 — that is an artefact of n=1,
-not a claim of perfect stability. Do not report an SD from this file.
+`stage_binary_results.json` is now `"complete": true`, both planned folds
+finished:
+
+| Metric | Mean ± SD (2 folds) |
+|---|---|
+| balanced accuracy | 0.5717 ± 0.0194 |
+| AUROC | 0.6071 ± 0.0128 |
+| C-index | 0.6839 ± 0.0003 |
+| ECE | 0.0305 ± 0.0218 |
+
+Two folds give a spread, not a reliable one — an SD from n=2 has one degree of
+freedom and should be quoted as a range, not treated as a standard error. The
+balanced-accuracy spread of ±0.019 is about twice the ±0.01 run-to-run noise
+floor, so fold-to-fold variation here exceeds seed variation.
+
+## The gene reduction hurts the model and not the baselines
+
+`table3_comparison_full.csv` in this directory is the baseline panel refitted
+at 120 genes. Comparing it with the manuscript panel at 200 genes:
+
+| Model | 120 genes | 200 genes | Delta |
+|---|---|---|---|
+| `lightgbm` | 0.682 | 0.685 | −0.003 |
+| MOSAIC-GNN | 0.5717 | 0.5938 | −0.0221 |
+
+The gradient-boosted baseline is essentially unaffected by cutting the feature
+space by 40%; MOSAIC-GNN loses roughly seven times as much. Read carefully,
+this cuts both ways and the manuscript should say so:
+
+* It supports the claim that the model is compute-constrained rather than
+  converged — it is the method still climbing as resources increase.
+* It equally shows the baselines were already extracting what this feature
+  space holds at 120 genes, so the gap at 200 genes is not obviously
+  something more genes would close. Extrapolating MOSAIC-GNN past
+  `lightgbm` from two points would be wishful.
+
+Neither reading is established by two configurations. What is established is
+that the two method families respond very differently to the gene budget, and
+any claim about convergence must account for that rather than assume the
+model's curve keeps rising while the baselines' stays flat.
