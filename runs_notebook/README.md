@@ -10,78 +10,59 @@ Three directories, three provenances, and the distinction matters:
 | Directory | Data | Configuration | Quotable as a result? |
 |---|---|---|---|
 | `runs/` | **synthetic** | smoke test | **No. Never.** |
-| `runs_notebook/` | real | reduced (120 genes, 6 epochs) | No — demonstration only |
+| `runs_notebook/` | real | reduced (60 genes, 3 epochs) | No — demonstration only |
 | `runs_pan_cohort/`, `runs_pan_stage/` | real | manuscript (200 genes, 20 epochs) | **Yes** |
 
 Earlier the notebook wrote into `runs/`, putting real reduced output in the
 same folder as synthetic fixtures. `scripts/build_notebook.py` now points at
 this directory instead, so provenance is readable from the path alone.
 
-## What the reduction costs, measured
+## What the reduction costs, measured at three gene budgets
 
-The notebook fitted `stage_binary` on one held-out fold at 120 genes and 6
-epochs. The manuscript run used 200 genes and 20 epochs on the same target:
+The shipped notebook runs at **60 genes, 3 epochs**. An earlier execution used
+120 genes and 6 epochs, and the manuscript used 200 genes and 20 epochs. That
+gives three points for MOSAIC-GNN and two for the strongest baseline:
 
-| Metric | Notebook (120g, 6ep) | Manuscript (200g, 20ep) | Delta |
+| Genes / epochs | MOSAIC-GNN bacc | `lightgbm` bacc | Gap |
 |---|---|---|---|
-| balanced accuracy | 0.5580 | 0.5938 | −0.0358 |
-| AUROC | 0.5980 | 0.6372 | −0.0392 |
-| C-index | 0.6841 | 0.7233 | −0.0392 |
-| ECE | 0.0459 | 0.0352 | +0.0107 |
+| 60 / 3 | 0.5687 | 0.6745 | 0.106 |
+| 120 / 6 | 0.5717 | 0.6820 | 0.110 |
+| 200 / 20 | 0.5938 | 0.6851 | 0.091 |
 
-Two things follow, and both belong in the manuscript rather than here alone.
+Full metric set for the shipped run, 2-fold CV:
 
-**The reduction costs about 0.036–0.039 on every discrimination metric,
-consistently.** That is three to four times the ±0.01 run-to-run noise floor,
-so it is a real effect and not seed variation.
+| Metric | 60g / 3ep (2-fold CV) | 200g / 20ep (held-out fold) |
+|---|---|---|
+| balanced accuracy | 0.5687 ± 0.0186 | 0.5938 |
+| AUROC | 0.6053 ± 0.0142 | 0.6372 |
+| C-index | 0.6801 ± 0.0031 | 0.7233 |
+| ECE | 0.0343 ± 0.0100 | 0.0352 |
 
-**The reported numbers are therefore not at the model's ceiling.** Performance
-was still improving with genes and epochs when the compute budget ran out.
-This converts the compute-ceiling limitation from an assertion into a
-measurement: a reviewer asking "would more compute have helped?" can be told
-yes, by this much, over this range — while noting that two points do not
-establish where the curve flattens, and nothing here shows the gap would
-close against the baselines, which were not similarly constrained.
+**These columns are not strictly comparable.** The left is a mean over two
+folds; the right is a single held-out fold. A fold mean and a point estimate
+have different sampling properties, and the ±0.019 fold spread is of the same
+order as the difference between them. Compare the two CV rows with each other
+(60g 0.5687, 120g 0.5717) and treat the manuscript column as indicative.
+
+Three things follow.
+
+**Both method families improve with more genes, and the model improves
+faster.** MOSAIC-GNN gains 0.025 from 60 to 200 genes against `lightgbm`'s
+0.011. That is the evidence for the compute-ceiling limitation, and it is a
+measurement rather than an assertion.
+
+**The gap does not close.** It is 0.106, 0.110, 0.091 across the three
+budgets — narrowing only at the last step, and by less than the fold spread.
+Extrapolating the model past the baseline from this is not supported.
+
+**The blunt version, which belongs in the manuscript.** `lightgbm` at 60
+genes (0.6745) still beats MOSAIC-GNN at 200 genes (0.5938) by 0.081. The
+baseline given a third of the features outperforms the proposed architecture
+given all of them. No framing of the compute ceiling survives that sentence,
+and it should be written rather than left for a reviewer to compute.
 
 ## The cross-validation file
 
-`stage_binary_results.json` is now `"complete": true`, both planned folds
-finished:
-
-| Metric | Mean ± SD (2 folds) |
-|---|---|
-| balanced accuracy | 0.5717 ± 0.0194 |
-| AUROC | 0.6071 ± 0.0128 |
-| C-index | 0.6839 ± 0.0003 |
-| ECE | 0.0305 ± 0.0218 |
-
-Two folds give a spread, not a reliable one — an SD from n=2 has one degree of
-freedom and should be quoted as a range, not treated as a standard error. The
-balanced-accuracy spread of ±0.019 is about twice the ±0.01 run-to-run noise
-floor, so fold-to-fold variation here exceeds seed variation.
-
-## The gene reduction hurts the model and not the baselines
-
-`table3_comparison_full.csv` in this directory is the baseline panel refitted
-at 120 genes. Comparing it with the manuscript panel at 200 genes:
-
-| Model | 120 genes | 200 genes | Delta |
-|---|---|---|---|
-| `lightgbm` | 0.682 | 0.685 | −0.003 |
-| MOSAIC-GNN | 0.5717 | 0.5938 | −0.0221 |
-
-The gradient-boosted baseline is essentially unaffected by cutting the feature
-space by 40%; MOSAIC-GNN loses roughly seven times as much. Read carefully,
-this cuts both ways and the manuscript should say so:
-
-* It supports the claim that the model is compute-constrained rather than
-  converged — it is the method still climbing as resources increase.
-* It equally shows the baselines were already extracting what this feature
-  space holds at 120 genes, so the gap at 200 genes is not obviously
-  something more genes would close. Extrapolating MOSAIC-GNN past
-  `lightgbm` from two points would be wishful.
-
-Neither reading is established by two configurations. What is established is
-that the two method families respond very differently to the gene budget, and
-any claim about convergence must account for that rather than assume the
-model's curve keeps rising while the baselines' stays flat.
+`stage_binary_results.json` is `"complete": true`, both folds finished, and
+the metric table above carries its spread. An SD from two folds has one
+degree of freedom: quote it as a range, not as a standard error.
