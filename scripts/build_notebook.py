@@ -180,9 +180,19 @@ def _merged(root):
 
 # Look for the real merged cohorts in the usual places, nearest first.
 DATA_ROOT, USING_REAL_DATA = None, False
-for cand in ("./data_real",
-             "/kaggle/input/datasets/jannatuljerin/tcga-capstone",
-             os.path.join(PKG_ROOT, "data_real")):
+# data_pan first: it is the 32-cohort panel dataset the results come from.
+# data_real is the earlier four-cohort merge, kept as a fallback. Both the
+# relative and the PKG_ROOT-anchored form are tried, because the notebook's
+# working directory is notebooks/ when a runner executes it in place and the
+# repository root when a person opens it -- looking only at "./" found
+# nothing under notebooks/ and dropped silently to synthetic data.
+for cand in ("./data_pan",
+             os.path.join(PKG_ROOT, "data_pan"),
+             "../data_pan",
+             "./data_real",
+             os.path.join(PKG_ROOT, "data_real"),
+             "../data_real",
+             "/kaggle/input/datasets/jannatuljerin/tcga-capstone"):
     if _merged(cand):
         DATA_ROOT, USING_REAL_DATA = os.path.abspath(cand), True
         break
