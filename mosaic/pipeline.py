@@ -259,7 +259,14 @@ class Experiment:
         fingerprint = _fit_fingerprint(t, train_idx, val_idx, n_classes,
                                        cfg.train.epochs, cfg.train.seed)
         start_epoch = 0
-        save_every = max(every, 10)
+        # Checkpoint cadence is set by how long this container lives, not by a
+        # round number. It is rebuilt roughly every forty-five minutes, and at
+        # pan-cancer scale an epoch costs minutes, so a ten-epoch interval put
+        # the first save at or beyond the container's lifetime -- which is how
+        # three hours of training were lost once already, with nothing on disk
+        # to resume from. Save every third epoch, and never less often than the
+        # evaluation itself. MOSAIC_SAVE_EVERY overrides it.
+        save_every = max(int(os.environ.get("MOSAIC_SAVE_EVERY", "3")), 1)
         if resume_path is not None and os.path.isfile(resume_path):
             try:
                 ck = torch.load(resume_path, map_location=self.device,
@@ -395,7 +402,16 @@ class Experiment:
                                                         float("nan")),
                     "val_c_index": detail.get("c_index", float("nan")),
                 })
-                if verbose and (epoch + 1) % 20 == 0:
+                # A fixed cadence of 20 epochs means a 20-epoch fit prints one
+                # line, at the very end: for over an hour there is no way to
+                # tell a live fit from a wedged one. Throttle in units of
+                # evaluations, not epochs -- validation only runs every
+                # `every` epochs, so an epoch-based cadence can miss every
+                # eval and print nothing at all. Aim for at most ~12 lines.
+                n_evals = max(cfg.train.epochs // every, 1)
+                log_every = max(n_evals // 12, 1)
+                if verbose and (len(history) % log_every == 0
+                                or epoch == cfg.train.epochs - 1):
                     loss_str = " ".join(f"{k}={v:.3f}" for k, v in
                                         sorted(epoch_terms.items()) if k == "total")
                     print(f"  epoch {epoch + 1:3d} {loss_str} "
