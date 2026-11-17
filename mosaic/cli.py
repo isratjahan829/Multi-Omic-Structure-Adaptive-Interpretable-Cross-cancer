@@ -158,7 +158,23 @@ def cmd_baseline(cfg: Config) -> None:
                          "target": cfg.data.class_target}, fh)
         os.replace(tmp, ppath)
 
+    # How many of the outer folds the panel is actually evaluated on. The
+    # split is always the full k-fold, so a capped run uses exactly the fold 0
+    # a complete run would; it just stops early, and the summary records n per
+    # metric so the report states the fold count instead of implying five.
+    #
+    # This exists because at pan-cancer scale the panel is the slowest thing
+    # in the schedule: twenty-odd models over 10 953 patients, five folds, two
+    # targets. Spending the whole compute budget there would leave MOSAIC-GNN
+    # itself with no numbers, which is the one result the work cannot do
+    # without.
+    max_folds = int(os.environ.get("MOSAIC_BASELINE_FOLDS",
+                                   cfg.train.outer_folds))
     for fold, (tr, te) in enumerate(skf.split(idx, strat)):
+        if fold >= max_folds:
+            print(f"[baseline] stopping after {max_folds} of "
+                  f"{cfg.train.outer_folds} folds (MOSAIC_BASELINE_FOLDS)")
+            break
         if fold < len(per_fold):
             continue                      # already finished in an earlier run
         tensors, _, data = exp.build_fold(tr)

@@ -47,6 +47,13 @@ BATCH="${BATCH:-32}"
 ABL_FOLDS="${ABL_FOLDS:-1}"
 PERMUTATIONS="${PERMUTATIONS:-3}"
 MARKERS="${MARKERS:-runs_markers_pan}"
+# The baseline panel is the slowest phase at this scale: twenty-odd models
+# over 10 953 patients. Evaluating it on one fold instead of five leaves
+# compute for MOSAIC-GNN's own cross-validation, without which the work has
+# no headline result. The report states the fold count; raise this once the
+# GNN numbers exist and the panel will fill in the remaining folds from its
+# per-model cache.
+export MOSAIC_BASELINE_FOLDS="${MOSAIC_BASELINE_FOLDS:-1}"
 
 # Every cohort present on disk, so adding a study needs no edit here.
 COHORTS="$(ls "$ROOT" | sed -n 's/_merged_full\.parquet$//p' | paste -sd, -)"
