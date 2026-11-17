@@ -139,6 +139,26 @@ def collect_facts(targets: Dict[str, str]) -> Dict[str, dict]:
                 if "mosaic_gnn" in d.index and pd.notna(d.at["mosaic_gnn",
                                                              metric]):
                     f[f"mosaic_{metric}"] = float(d.at["mosaic_gnn", metric])
+
+        # ---- MOSAIC-GNN's own held-out fold, from table 2 ----------------- #
+        # table3 holds the baseline panel only -- the proposed model's metrics
+        # are written to table2_single_fold.csv, so reading mosaic_* from
+        # table3 alone leaves the draft printing "not run" for a number that
+        # did run. Fill any mosaic_* the panel did not supply from table 2.
+        t2 = os.path.join(runs, "table2_single_fold.csv")
+        if os.path.exists(t2):
+            d2 = pd.read_csv(t2, index_col=0)
+            col = d2.columns[0] if len(d2.columns) else None
+            if col is not None:
+                for metric in ("balanced_accuracy", "auroc", "auprc",
+                               "c_index", "f1_macro", "mcc", "ece",
+                               "accuracy", "logrank_p"):
+                    key = f"mosaic_{metric}"
+                    if key in f or metric not in d2.index:
+                        continue
+                    v = d2.at[metric, col]
+                    if pd.notna(v):
+                        f[key] = float(v)
             # The comparison that tests the premise of the whole project: does
             # molecular data add anything over the clinical covariates alone?
             if "c_index" in d.columns:
