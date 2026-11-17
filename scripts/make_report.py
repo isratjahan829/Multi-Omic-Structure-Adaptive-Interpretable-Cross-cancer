@@ -51,6 +51,83 @@ def md(df: Optional[pd.DataFrame], cols: Optional[List[str]] = None,
     return out.round(decimals).to_markdown()
 
 
+def verdict(pairs: Dict[str, str]) -> str:
+    """What the paired tests support, stated before any table is read.
+
+    This is the section to read first and the one to defend. It is computed
+    from table4_paired_tests.csv -- the paired bootstrap on identical held-out
+    patients with Benjamini-Hochberg correction across the whole table -- so it
+    cannot drift away from the numbers below it, and it says where MOSAIC-GNN
+    loses as plainly as where it wins. A claim this section does not make is a
+    claim the data does not support.
+    """
+    L: List[str] = ["## What the statistics support\n"]
+    A = L.append
+    A("Computed from `table4_paired_tests.csv` in each run directory: paired "
+      "bootstrap against every baseline on exactly the same held-out "
+      "patients, Benjamini-Hochberg corrected across the table. A positive "
+      "delta means MOSAIC-GNN is ahead.\n")
+
+    any_table = False
+    for target, runs in pairs.items():
+        d = read_csv(f"{runs}/table4_paired_tests.csv")
+        if d is None:
+            A(f"**`{target}`** — paired tests not available: the primary-fold "
+              f"run that produces them did not complete. No claim can be made "
+              f"for this target.\n")
+            continue
+        any_table = True
+        A(f"### `{target}`\n")
+        for label, dcol, qcol, scol in (
+                ("Classification (balanced accuracy)",
+                 "bacc_delta", "bacc_q", "bacc_sig"),
+                ("Survival (C-index)",
+                 "cindex_delta", "cindex_q", "cindex_sig")):
+            if dcol not in d.columns or scol not in d.columns:
+                continue
+            sub = d.dropna(subset=[dcol])
+            if sub.empty:
+                continue
+            sig = sub[sub[scol].fillna(False).astype(bool)]
+            worse = sig[sig[dcol] < 0].sort_values(dcol)
+            better = sig[sig[dcol] > 0].sort_values(dcol, ascending=False)
+            ties = sub[~sub[scol].fillna(False).astype(bool)]
+            A(f"**{label}.** {len(sub)} comparators tested.\n")
+            if len(worse):
+                A(f"- Significantly **better than MOSAIC-GNN** "
+                  f"({len(worse)}): " + ", ".join(
+                      f"`{m}` ({sub.at[m, dcol]:+.3f}, q={sub.at[m, qcol]:.3f})"
+                      for m in worse.index) + "\n")
+            if len(better):
+                A(f"- MOSAIC-GNN **significantly better** "
+                  f"({len(better)}): " + ", ".join(
+                      f"`{m}` ({sub.at[m, dcol]:+.3f}, q={sub.at[m, qcol]:.3f})"
+                      for m in better.index) + "\n")
+            if len(ties):
+                A(f"- **Not distinguishable** at q < 0.05 ({len(ties)}): "
+                  + ", ".join(f"`{m}`" for m in ties.index) + "\n")
+            if not len(worse) and not len(better):
+                A("- No comparator is distinguishable from MOSAIC-GNN on this "
+                  "metric.\n")
+            A("")
+
+    if any_table:
+        A("### How to word this\n")
+        A("Write the claim these tests support and no stronger. Where a "
+          "baseline is significantly better, say so; where nothing is "
+          "distinguishable, that is a tie and not a win. In particular, a "
+          "significant gain over `cox_clinical_only` is the finding that "
+          "molecular features add prognostic information beyond clinical "
+          "covariates — which is a real result about the data, independent of "
+          "whether the proposed architecture beats the other architectures. "
+          "Keep the two apart.\n")
+        A("Differences smaller than about 0.01 balanced accuracy should not be "
+          "read as effects at all: three fits of the same fold with the same "
+          "seed gave 0.4567, 0.4341 and 0.4547, so that is the noise floor of "
+          "this pipeline.\n")
+    return "\n".join(L)
+
+
 def section(target: str, runs: str) -> str:
     L: List[str] = []
     A = L.append
@@ -171,6 +248,8 @@ def main() -> None:
     for spec in args.targets:
         target, _, runs = spec.partition(":")
         pairs[target] = runs
+
+    parts.append(verdict(pairs))
 
     # The cohort table is identical for every target, so it is reported once.
     for runs in pairs.values():

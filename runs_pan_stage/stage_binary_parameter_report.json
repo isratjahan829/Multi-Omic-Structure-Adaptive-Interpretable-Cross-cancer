@@ -1,0 +1,19 @@
+{
+  "trainable_parameters": 273796,
+  "training_patients": 5841,
+  "parameters_per_patient": 46.8748501968841,
+  "params[encoder]": 121189,
+  "params[omic_proj]": 37248,
+  "params[fuse]": 37120,
+  "params[patient_gnn]": 33536,
+  "params[hazard_head]": 13964,
+  "params[cls_head]": 12674,
+  "params[risk_head]": 12545,
+  "params[cohort_adv]": 3104,
+  "params[cohort_spec]": 1056,
+  "params[clinical]": 608,
+  "params[graph_learner]": 512,
+  "params[res_hazard]": 192,
+  "params[res_cls]": 32,
+  "params[res_risk]": 16
+}
