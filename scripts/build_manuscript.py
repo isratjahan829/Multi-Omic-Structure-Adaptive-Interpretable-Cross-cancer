@@ -89,6 +89,107 @@ def with_sd(df: pd.DataFrame, metrics: List[str], digits: int = 3
 
 
 # --------------------------------------------------------------------------- #
+def collect_facts(targets: Dict[str, str]) -> Dict[str, dict]:
+    """The headline numbers the prose quotes, read out of the run artefacts.
+
+    The draft must not contain a hand-typed number. Every quantity the text
+    asserts is extracted here, from the CSV or JSON that a command wrote, and
+    interpolated into the prose by make_docx.js. A fact that is missing because
+    its phase did not run stays missing, and the prose renders "[not run]" in
+    its place rather than a plausible-looking value.
+
+    `targets` maps a target name ("cohort", "stage_binary") to its run
+    directory.
+    """
+    facts: Dict[str, dict] = {}
+    for target, runs in targets.items():
+        f: Dict[str, object] = {"runs": runs, "target": target}
+
+        # ---- the patient set, from table 1 ------------------------------- #
+        t1 = os.path.join(runs, "table1_cohorts.csv")
+        if os.path.exists(t1):
+            d = pd.read_csv(t1)
+            f["n_cohorts"] = int(len(d))
+            f["n_patients"] = int(d["patients"].sum())
+            f["n_events"] = int(d["events"].sum())
+            lab = d[d["labelled"] > 0]
+            f["n_labelled"] = int(lab["labelled"].sum())
+            f["n_cohorts_labelled"] = int(len(lab))
+            f["cohorts_unlabelled"] = sorted(d.loc[d["labelled"] == 0,
+                                                   "cohort"].tolist())
+            few = d.nsmallest(5, "events")[["cohort", "events", "patients"]]
+            f["fewest_events"] = [
+                {"cohort": r.cohort, "events": int(r.events),
+                 "patients": int(r.patients)} for r in few.itertuples()]
+
+        # ---- the baseline panel, from table 3 ---------------------------- #
+        t3 = os.path.join(runs, "table3_comparison_full.csv")
+        if os.path.exists(t3):
+            d = pd.read_csv(t3, index_col=0)
+            f["n_baselines"] = int(len(d.index.difference(["mosaic_gnn"])))
+            for metric in ("balanced_accuracy", "auroc", "c_index"):
+                if metric not in d.columns:
+                    continue
+                s = d[metric].drop(index=["mosaic_gnn"], errors="ignore")
+                s = s.dropna()
+                if s.empty:
+                    continue
+                f[f"best_{metric}"] = {"model": str(s.idxmax()),
+                                       "value": float(s.max())}
+                if "mosaic_gnn" in d.index and pd.notna(d.at["mosaic_gnn",
+                                                             metric]):
+                    f[f"mosaic_{metric}"] = float(d.at["mosaic_gnn", metric])
+            # The comparison that tests the premise of the whole project: does
+            # molecular data add anything over the clinical covariates alone?
+            if "c_index" in d.columns:
+                for mol in ("cox_lasso", "cox_ridge"):
+                    if mol in d.index and "cox_clinical_only" in d.index:
+                        a = d.at[mol, "c_index"]
+                        b = d.at["cox_clinical_only", "c_index"]
+                        if pd.notna(a) and pd.notna(b):
+                            f["molecular_gain"] = {
+                                "model": mol, "molecular": float(a),
+                                "clinical_only": float(b),
+                                "delta": float(a) - float(b)}
+                            break
+
+        # ---- cross-validation mean +/- SD, from the CLI summary ---------- #
+        cv = os.path.join(runs, f"{target}_results.json")
+        if os.path.exists(cv):
+            with open(cv) as fh:
+                j = json.load(fh)
+            got = {}
+            for metric in ("balanced_accuracy", "auroc", "c_index"):
+                m = j.get(metric) if isinstance(j, dict) else None
+                if isinstance(m, dict) and m.get("n"):
+                    got[metric] = {"mean": m.get("mean"), "sd": m.get("std"),
+                                   "n": m.get("n")}
+            if got:
+                f["cv"] = got
+
+        # ---- paired tests, from table 4 ---------------------------------- #
+        t4 = os.path.join(runs, "table4_paired_tests.csv")
+        if os.path.exists(t4):
+            d = pd.read_csv(t4, index_col=0)
+            sig = [c for c in d.columns if c.endswith("_sig")]
+            if sig:
+                f["paired"] = {
+                    "n_compared": int(len(d)),
+                    "n_significant": {c: int(d[c].fillna(False)
+                                             .astype(bool).sum())
+                                      for c in sig}}
+
+        # ---- the leakage control, from the permutation table ------------- #
+        tp = os.path.join(runs, "tableS2_permutation_test.csv")
+        if os.path.exists(tp):
+            d = pd.read_csv(tp, index_col=0)
+            f["permutation"] = {"rows": int(len(d)),
+                                "columns": list(map(str, d.columns))}
+
+        facts[target] = f
+    return facts
+
+
 def load_tables(runs: str, real: str) -> Dict[str, dict]:
     """Every table the manuscript needs, already formatted for Word."""
     def read(name, **kw):
@@ -348,6 +449,12 @@ def main() -> None:
     ap.add_argument("--runs", default="./runs")
     ap.add_argument("--real", default="./real_results")
     ap.add_argument("--out", default="manuscript_payload.json")
+    ap.add_argument("--facts", nargs="*", default=[], metavar="TARGET:DIR",
+                    help="run directories to read the prose's headline "
+                         "numbers from, e.g. cohort:runs_pan_cohort "
+                         "stage_binary:runs_pan_stage. Every number the draft "
+                         "asserts comes from here; anything absent renders as "
+                         "[not run] rather than being invented.")
     args = ap.parse_args()
 
     tables = load_tables(args.runs, args.real)
@@ -356,9 +463,26 @@ def main() -> None:
                for f, lab, cap in FIGURES
                if os.path.exists(os.path.join(args.runs, f))]
 
+    spec = {}
+    for item in args.facts:
+        if ":" not in item:
+            raise SystemExit(f"--facts wants TARGET:DIR, got {item!r}")
+        target, _, directory = item.partition(":")
+        spec[target] = directory
+    facts = collect_facts(spec) if spec else {}
+
     with open(args.out, "w") as fh:
-        json.dump({"tables": tables, "figures": figures}, fh, indent=1)
-    print(f"wrote {args.out}: {len(tables)} tables, {len(figures)} figures")
+        json.dump({"tables": tables, "figures": figures, "facts": facts},
+                  fh, indent=1)
+    print(f"wrote {args.out}: {len(tables)} tables, {len(figures)} figures, "
+          f"{len(facts)} fact set(s)")
+    for target, f in facts.items():
+        have = [k for k in ("n_patients", "best_balanced_accuracy",
+                            "molecular_gain", "cv", "paired", "permutation")
+                if k in f]
+        missing = [k for k in ("cv", "paired", "permutation") if k not in f]
+        print(f"  {target:<14} have={','.join(have) or '-'}"
+              + (f"  NOT RUN={','.join(missing)}" if missing else ""))
     for k, v in tables.items():
         print(f"  {v['label']:<10} {len(v['grid']) - 1:>3} rows x "
               f"{len(v['grid'][0]):>2} cols  {k}")
