@@ -660,9 +660,23 @@ def run_baseline_suite(x, clinical, y, time, event, train_idx, test_idx,
     # MOSAIC-GNN on c-index is the question the table exists to answer -- so
     # each is attempted under its own budget and recorded as skipped, with
     # the reason, if it does not finish.
+    # Models named here are not attempted at all. This is for a model that
+    # cannot be made to fit the machine rather than one that merely fails:
+    # random_survival_forest was OOM-killed at pan-cancer scale even with its
+    # depth and threads bounded, and because a SIGKILL cannot be caught it
+    # destroyed the whole panel each time instead of recording one blank row.
+    # A model skipped this way is reported as not run, with the reason.
+    skip = {s.strip() for s in
+            os.environ.get("MOSAIC_SKIP_BASELINES", "").split(",") if s.strip()}
+
     def _survival(name: str, fn):
         if name in metrics:
             return                                # already in the cache
+        if name in skip:
+            if verbose:
+                print(f"  {name:<24} not run (MOSAIC_SKIP_BASELINES)",
+                      flush=True)
+            return
         try:
             with _time_budget(name, verbose):
                 risk = fn()

@@ -54,6 +54,12 @@ MARKERS="${MARKERS:-runs_markers_pan}"
 # GNN numbers exist and the panel will fill in the remaining folds from its
 # per-model cache.
 export MOSAIC_BASELINE_FOLDS="${MOSAIC_BASELINE_FOLDS:-1}"
+# random_survival_forest cannot be fitted on this machine at pan-cancer scale.
+# Bounded to two threads, max_depth=12 and max_features="sqrt" it was still
+# OOM-killed, and a SIGKILL cannot be caught, so each attempt destroyed the
+# whole panel rather than leaving one blank row. It is reported as not run,
+# with that reason, rather than silently omitted.
+export MOSAIC_SKIP_BASELINES="${MOSAIC_SKIP_BASELINES:-random_survival_forest}"
 
 # Every cohort present on disk, so adding a study needs no edit here.
 COHORTS="$(ls "$ROOT" | sed -n 's/_merged_full\.parquet$//p' | paste -sd, -)"
@@ -98,13 +104,19 @@ echo "genes=$GENES epochs=$EPOCHS folds=$FOLDS batch=$BATCH"
 step pan_cohort_baseline python -u -m mosaic.cli baseline $(common cohort runs_pan_cohort)
 step pan_stage_baseline  python -u -m mosaic.cli baseline $(common stage_binary runs_pan_stage)
 
-# ---- 2. five-fold cross-validation -------------------------------------- #
-step pan_cohort_cv python -u -m mosaic.cli train $(common cohort runs_pan_cohort)
-step pan_stage_cv  python -u -m mosaic.cli train $(common stage_binary runs_pan_stage)
-
-# ---- 3. primary-fold diagnostics and paired tests ----------------------- #
+# ---- 2. primary-fold diagnostics: MOSAIC-GNN's own headline numbers ----- #
+# Before cross-validation, not after. This is ONE fit per target rather than
+# five, and it produces the model's own metrics, the per-class and per-cohort
+# breakdowns, the generalisation gap and the paired tests against every
+# baseline. Until it has run the comparison table has baselines and nothing
+# to compare them with, so it buys more of the paper per hour than any other
+# phase on the list.
 step pan_cohort_primary tables cohort       runs_pan_cohort --permutations 0 --skip-sample-size
 step pan_stage_primary  tables stage_binary runs_pan_stage  --permutations 0 --skip-sample-size
+
+# ---- 3. five-fold cross-validation (mean +/- SD) ------------------------ #
+step pan_cohort_cv python -u -m mosaic.cli train $(common cohort runs_pan_cohort)
+step pan_stage_cv  python -u -m mosaic.cli train $(common stage_binary runs_pan_stage)
 
 # ---- 4. permutation null ------------------------------------------------ #
 step pan_stage_perm  tables stage_binary runs_pan_stage \
