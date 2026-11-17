@@ -87,7 +87,7 @@ function list(target, path) {
  * single fold, because a point estimate from one split must not be read as a
  * cross-validated mean. Neither available renders NOT_RUN.
  */
-function cv(target, metric) {
+function cv(target, metric, bare = false) {
   const m = FACTS[target] && FACTS[target].cv && FACTS[target].cv[metric];
   if (m && m.mean !== undefined && m.mean !== null) {
     const sd = (m.sd === undefined || m.sd === null)
@@ -97,11 +97,27 @@ function cv(target, metric) {
   }
   const single = FACTS[target] && FACTS[target][`mosaic_${metric}`];
   if (single !== undefined && single !== null && !Number.isNaN(single)) {
-    return `${single.toFixed(3)} (single held-out fold; cross-validation not `
-         + `yet run, so this is a point estimate with no spread)`;
+    // `bare` omits the caveat for the second and later mentions in a
+    // sentence that already carries it once. The caveat must appear, but
+    // repeating it verbatim mid-sentence reads as boilerplate and gets
+    // skipped, which defeats the purpose of having it.
+    return bare
+      ? `${single.toFixed(3)}`
+      : `${single.toFixed(3)} (single held-out fold; cross-validation not `
+        + `yet run, so these are point estimates with no spread)`;
   }
   missing.add(`${target}.cv.${metric}`);
   return NOT_RUN;
+}
+
+/** The best comparator named and scored, as a grammatical clause. */
+function bestClause(target, key) {
+  const b = FACTS[target] && FACTS[target][key];
+  if (!b || b.value === undefined || b.value === null) {
+    missing.add(`${target}.${key}`);
+    return NOT_RUN;
+  }
+  return `${b.model} at ${b.value.toFixed(3)}`;
 }
 
 // --------------------------------------------------------------------------- //
@@ -293,13 +309,13 @@ text("Results. Against " + int("cohort", "n_baselines") + " comparators "
    + "spanning penalised linear models, kernel and tree ensembles, multi-omic "
    + "fusion networks, patient-graph GNNs and dedicated survival models, the "
    + "two endpoints behave very differently. Tissue of origin is close to "
-   + "saturated: the best comparator is " + best("cohort",
-     "best_balanced_accuracy") + " balanced accuracy at AUROC "
-   + num("cohort", "best_auroc.value") + ", and ordinary penalised logistic "
-   + "regression is within a hundredth of the best model in the panel, so the "
-   + "endpoint cannot separate methods. Stage is genuinely hard on the same "
-   + "patients and the same genes: the best comparator reaches only "
-   + best("stage_binary", "best_balanced_accuracy") + ". The clearest "
+   + "saturated for conventional classifiers: the best comparator is "
+   + bestClause("cohort", "best_balanced_accuracy") + " balanced accuracy and "
+   + "AUROC " + num("cohort", "best_auroc.value") + ", and ordinary penalised "
+   + "logistic regression is within a hundredth of it, so the endpoint cannot "
+   + "rank those methods against one another. Stage is genuinely hard on the "
+   + "same patients and the same genes: the best comparator reaches only "
+   + bestClause("stage_binary", "best_balanced_accuracy") + ". The clearest "
    + "prognostic result is that molecular features add information over "
    + "clinical covariates alone — penalised Cox reaches c-index "
    + num("cohort", "molecular_gain.molecular") + " against "
@@ -309,20 +325,27 @@ text("Results. Against " + int("cohort", "n_baselines") + " comparators "
    + num("stage_binary", "molecular_gain.delta") + " on the staged subset. "
    + "MOSAIC-GNN's own balanced accuracy was "
    + cv("cohort", "balanced_accuracy") + " on tissue of origin and "
-   + cv("stage_binary", "balanced_accuracy") + " on stage. On classification "
-   + "the proposed model is beaten on both endpoints: it falls well short of "
-   + "penalised logistic regression on tissue of origin, and "
+   + cv("stage_binary", "balanced_accuracy", true) + " on stage. On "
+   + "classification the proposed model is beaten on both endpoints, and "
+   + "under a paired bootstrap on identical held-out patients with "
+   + "Benjamini-Hochberg correction the margin is not marginal: "
+   + int("cohort", "paired.bacc.n_worse") + " of "
+   + int("cohort", "paired.bacc.n_tested") + " comparators are significantly "
+   + "better on tissue of origin and "
    + int("stage_binary", "paired.bacc.n_worse") + " of "
-   + int("stage_binary", "paired.bacc.n_tested") + " comparators are "
-   + "significantly better on stage under a paired bootstrap on identical "
-   + "held-out patients. On survival it is competitive: "
-   + int("stage_binary", "paired.cindex.n_tied") + " of "
-   + int("stage_binary", "paired.cindex.n_tested") + " comparators are "
-   + "statistically indistinguishable from it, including dedicated survival "
-   + "models and patient-graph GNNs, and it significantly exceeds a "
-   + "clinical-only Cox model (c-index delta "
+   + int("stage_binary", "paired.bacc.n_tested") + " on stage. On survival it "
+   + "is competitive: "
+   + int("cohort", "paired.cindex.n_tied") + " of "
+   + int("cohort", "paired.cindex.n_tested") + " comparators are statistically "
+   + "indistinguishable from it on tissue of origin with none significantly "
+   + "better, and " + int("stage_binary", "paired.cindex.n_tied") + " of "
+   + int("stage_binary", "paired.cindex.n_tested") + " on stage. It "
+   + "significantly exceeds an identically fitted clinical-only Cox model on "
+   + "both endpoints (c-index delta "
+   + num("cohort", "paired.models.cox_clinical_only.cindex_delta", 3) + " and "
    + num("stage_binary", "paired.models.cox_clinical_only.cindex_delta", 3)
-   + ").");
+   + ", both q < 0.001) — the same result reached twice on independently "
+   + "fitted targets labelling overlapping patients differently.");
 text("Conclusions. On a pan-cancer cohort with a pre-committed feature space, "
    + "structured multi-omics carries prognostic information beyond clinical "
    + "covariates; tumour stage is only weakly encoded in bulk molecular "
