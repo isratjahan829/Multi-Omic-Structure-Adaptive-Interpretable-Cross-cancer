@@ -166,6 +166,38 @@ sharply between these 32 studies, so a classifier can read tissue partly from
 of the tissue result that explains, and it should be read before the headline
 tissue number.
 
+## What the model attends to, and the confound in reading it
+
+The integrated-gradient ranking on the stage target puts canonical drivers at
+the top: **CDKN2B, CDKN2A, TP53, SMAD4, TP63, CREBBP**, then MGA, EZH2,
+RECQL4, AGO2, RAC1. Every one of the top six is a Cancer Gene Census gene.
+That is the right sanity check to run on an attribution method, and it passes:
+the model is not keying on arbitrary features.
+
+The learned functional modules are also coherent rather than arbitrary:
+
+| Module | Genes | Reading |
+|---|---|---|
+| 028 | CDKN2B, CDKN2A, ALOX12B | the 9p21 tumour-suppressor locus |
+| 032 | CD274, JAK2, PDCD1LG2 | the 9p24.1 immune-checkpoint amplicon (PD-L1, PD-L2) |
+| 014 | B2M, TAP1, HLA-B, HLA-A | MHC class I antigen presentation |
+| 001 | EZH2, DNMT3A | epigenetic regulators |
+
+**The confound, stated before anyone else states it.** The gene graph is built
+from co-alteration correlation, and the modules are a spectral partition of
+that graph. Genes that sit at the same locus are deleted or amplified
+together, so recovering CDKN2A with CDKN2B, or CD274 with PDCD1LG2, partly
+reflects physical proximity on the chromosome rather than a discovered
+functional relationship. These modules are **correct**, and they are also
+**partly predictable from the construction**. The honest claim is that the
+module layer recovers known co-alteration structure — which is a validity
+check on the method, not a biological discovery.
+
+The attribution ranking is a set of hypotheses. A reviewer will expect the
+overlap with COSMIC Cancer Gene Census and OncoKB quantified rather than
+asserted, and pathway enrichment run on `runs_pan_stage/stage_binary_genes.rnk`
+with FDR reported. Neither has been done here, and neither is claimed.
+
 ## Honest limitations
 
 1. **`LUAD` is lung adenocarcinoma only**, not a combined lung cohort. LUSC
