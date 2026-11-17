@@ -134,6 +134,47 @@ approaches the tissue numbers. That contrast — near-ceiling tissue, modest
 stage, same patients, same genes, same pipeline — is a finding about what bulk
 multi-omics encodes, and it is stated plainly here rather than buried.
 
+### Where MOSAIC-GNN loses on tissue of origin, and why that was predictable
+
+On the `cohort` target MOSAIC-GNN reaches balanced accuracy **0.751** against
+logistic regression's **0.942**. That is not a narrow miss; it is a loss of
+nineteen points to the simplest model in the panel, and no reading of the
+table makes it anything else.
+
+There is a mechanical reason, and it is stated here as an explanation under
+test rather than as a defence. The architecture contains a cohort adversary
+trained through gradient reversal, whose entire purpose is to remove
+cohort-identifying information from the shared representation so that what
+remains transfers across cancer types. Scoring that model on cohort
+classification measures how well it recovers precisely the information it was
+regularised to discard. Logistic regression operates under no such constraint
+and is free to key on tissue-specific mutation patterns, which a 468-gene
+panel supplies in abundance.
+
+The honest position is therefore: `cohort` is the wrong benchmark for this
+architecture, and it would have been the wrong benchmark whatever the result.
+It is reported because it was run, and because a report that dropped the
+target where the model does badly would not be worth reading. The
+`no_disentangle` ablation is the direct test — if removing the adversary
+recovers most of the nineteen points, the explanation holds; if it does not,
+the explanation is wrong and the loss is unexplained. Until that ablation
+runs, neither conclusion may be asserted, and this paragraph claims only that
+the prediction is falsifiable.
+
+### Calibration on the 32-class head is poor
+
+Expected calibration error on the `cohort` target is **0.273**, against 0.035
+on `stage_binary`. The 32-class probability outputs are badly calibrated and
+should not be read as confidences; a clinical application would need
+post-hoc recalibration before using them for anything. This is a genuine
+weakness of the run, it is listed in Limitations, and it is not softened
+anywhere in the write-up. Mean predictive entropy of 1.896 nats over 32
+classes says the same thing from the other direction: the head is diffuse.
+
+The binary head is a different matter — ECE 0.035 at 0.594 balanced accuracy
+is reasonable, which suggests the problem is the 32-way softmax under a
+disentanglement penalty rather than the calibration machinery itself.
+
 ### The one number that was a leak, and how it was caught
 
 On the first pan-cancer `stage_binary` run, logistic regression scored
@@ -221,6 +262,15 @@ with FDR reported. Neither has been done here, and neither is claimed.
 5. **Compute ceiling.** 200 genes and 20 epochs, for the measured reasons
    above. A reviewer who wonders why the configuration is modest will find the
    cost table rather than a silence.
+6. **The 32-class head is badly calibrated.** ECE 0.273 on `cohort`, against
+   0.035 on `stage_binary`. The multi-class probabilities are not usable as
+   confidences without post-hoc recalibration, which this work does not do.
+7. **MOSAIC-GNN is beaten on both classification targets**, by a wide margin
+   on `cohort` (0.751 against 0.942) and by a significant margin on
+   `stage_binary` by eight of twenty comparators. The survival side is where
+   the architecture is competitive. A write-up that leads with the
+   architecture rather than with what the molecular data adds over clinical
+   covariates would be overclaiming, and the abstract is worded accordingly.
 
 ## The pipeline was audited, and it needed to be
 
@@ -256,7 +306,21 @@ numbers are right?".
 
 Computed from `table4_paired_tests.csv` in each run directory: paired bootstrap against every baseline on exactly the same held-out patients, Benjamini-Hochberg corrected across the table. A positive delta means MOSAIC-GNN is ahead.
 
-**`cohort`** — paired tests not available: the primary-fold run that produces them did not complete. No claim can be made for this target.
+### `cohort`
+
+**Classification (balanced accuracy).** 20 comparators tested.
+
+- Significantly **better than MOSAIC-GNN** (18): `logistic_l2` (-0.190, q=0.000), `lightgbm` (-0.189, q=0.000), `mogonet_style` (-0.187, q=0.000), `xgboost` (-0.187, q=0.000), `late_fusion_mlp` (-0.184, q=0.000), `logistic_elasticnet` (-0.183, q=0.000), `logistic_l1` (-0.182, q=0.000), `hist_gradient_boosting` (-0.179, q=0.000), `linear_svm` (-0.175, q=0.000), `svm_rbf` (-0.173, q=0.000), `patient_sage` (-0.164, q=0.000), `random_forest` (-0.162, q=0.000), `lda_shrinkage` (-0.158, q=0.000), `mlp_early_fusion` (-0.146, q=0.000), `patient_gat` (-0.146, q=0.000), `patient_gcn` (-0.144, q=0.000), `extra_trees` (-0.144, q=0.000), `pca_logistic` (-0.116, q=0.000)
+
+- MOSAIC-GNN **significantly better** (2): `naive_bayes` (+0.208, q=0.000), `knn` (+0.061, q=0.000)
+
+
+**Survival (C-index).** 10 comparators tested.
+
+- MOSAIC-GNN **significantly better** (2): `cox_clinical_only` (+0.040, q=0.000), `patient_gcn` (+0.023, q=0.020)
+
+- **Not distinguishable** at q < 0.05 (8): `mlp_early_fusion`, `late_fusion_mlp`, `mogonet_style`, `patient_gat`, `patient_sage`, `cox_lasso`, `cox_ridge`, `deepsurv`
+
 
 ### `stage_binary`
 
@@ -277,6 +341,10 @@ Computed from `table4_paired_tests.csv` in each run directory: paired bootstrap 
 
 - **Not distinguishable** at q < 0.05 (8): `mlp_early_fusion`, `late_fusion_mlp`, `mogonet_style`, `patient_gcn`, `patient_gat`, `patient_sage`, `cox_ridge`, `deepsurv`
 
+
+### What replicates across targets
+
+MOSAIC-GNN significantly exceeds `cox_clinical_only` on **every target tested** (`cohort` +0.040, q=0.000, `stage_binary` +0.051, q=0.000). The two targets label overlapping patients differently and were fitted independently, so this is the same finding arrived at twice rather than one result counted twice. It is the strongest statement these tables support, and it is a statement about what the molecular data adds over clinical covariates — not about the architecture, which loses on classification in both.
 
 ### How to word this
 
@@ -327,19 +395,114 @@ _Cross-validation did not complete; no summary to report._
 
 ### Held-out fold: full metric panel
 
-_Not available: the run that produces this table did not complete._
+|                         |    value |
+|:------------------------|---------:|
+| accuracy                |   0.78   |
+| balanced_accuracy       |   0.7512 |
+| f1_macro                |   0.7218 |
+| f1_weighted             |   0.7855 |
+| precision_macro         |   0.7167 |
+| recall_macro            |   0.7512 |
+| specificity_macro       |   0.9929 |
+| npv_macro               |   0.9928 |
+| kappa                   |   0.77   |
+| kappa_quadratic         |   0.8092 |
+| mcc                     |   0.7705 |
+| log_loss                |   1.0025 |
+| brier                   |   0.4065 |
+| top2_accuracy           |   0.8941 |
+| auroc                   |   0.9846 |
+| auprc                   |   0.7909 |
+| ece                     |   0.273  |
+| c_index                 |   0.7756 |
+| auc@12m                 |   0.8034 |
+| auc@36m                 |   0.8102 |
+| auc@60m                 |   0.8093 |
+| logrank_chi2            | 419.334  |
+| logrank_p               |   0      |
+| mean_predictive_entropy |   1.8961 |
 
 ### Per class (held-out fold)
 
-_Not available: the run that produces this table did not complete._
+|    |   support |   precision |   recall |     f1 |   specificity |   mean_predicted_prob |
+|---:|----------:|------------:|---------:|-------:|--------------:|----------------------:|
+|  0 |        19 |      0.8182 |   0.9474 | 0.878  |        0.9982 |                0.0241 |
+|  1 |        82 |      0.7746 |   0.6707 | 0.719  |        0.9924 |                0.0275 |
+|  2 |       217 |      0.9579 |   0.8387 | 0.8943 |        0.9959 |                0.0525 |
+|  3 |        59 |      0.9636 |   0.8983 | 0.9298 |        0.9991 |                0.0256 |
+|  4 |         7 |      0.1429 |   0.4286 | 0.2143 |        0.9918 |                0.0393 |
+|  5 |       119 |      0.8    |   0.8067 | 0.8033 |        0.9884 |                0.0398 |
+|  6 |        10 |      0.9091 |   1      | 0.9524 |        0.9995 |                0.032  |
+|  7 |        36 |      0.5179 |   0.8056 | 0.6304 |        0.9875 |                0.0313 |
+|  8 |       117 |      0.875  |   0.7778 | 0.8235 |        0.9937 |                0.0324 |
+|  9 |       105 |      0.9368 |   0.8476 | 0.89   |        0.9971 |                0.0348 |
+| 10 |        13 |      0.2222 |   0.3077 | 0.2581 |        0.9936 |                0.0299 |
+| 11 |       102 |      0.8687 |   0.8431 | 0.8557 |        0.9938 |                0.0346 |
+| 12 |        57 |      0.6964 |   0.6842 | 0.6903 |        0.992  |                0.0274 |
+| 13 |        40 |      0.9714 |   0.85   | 0.9067 |        0.9995 |                0.0232 |
+| 14 |       103 |      0.8981 |   0.9417 | 0.9194 |        0.9947 |                0.033  |
+| 15 |        74 |      0.8553 |   0.8784 | 0.8667 |        0.9948 |                0.0288 |
+| 16 |       113 |      0.6838 |   0.708  | 0.6957 |        0.9822 |                0.0373 |
+| 17 |        98 |      0.7471 |   0.6633 | 0.7027 |        0.9895 |                0.0316 |
+| 18 |        17 |      0.2708 |   0.7647 | 0.4    |        0.9839 |                0.03   |
+| 19 |       117 |      0.7754 |   0.9145 | 0.8392 |        0.9851 |                0.0385 |
+| 20 |        37 |      0.4333 |   0.7027 | 0.5361 |        0.9842 |                0.0301 |
+| 21 |        35 |      0.5652 |   0.7429 | 0.642  |        0.9907 |                0.0261 |
+| 22 |        99 |      1      |   1      | 1      |        1      |                0.0362 |
+| 23 |        51 |      0.5526 |   0.4118 | 0.4719 |        0.9921 |                0.026  |
+| 24 |        89 |      0.8267 |   0.6966 | 0.7561 |        0.9938 |                0.0321 |
+| 25 |        88 |      0.7059 |   0.4091 | 0.518  |        0.9929 |                0.0298 |
+| 26 |        29 |      0.8889 |   0.8276 | 0.8571 |        0.9986 |                0.0217 |
+| 27 |       100 |      0.8557 |   0.83   | 0.8426 |        0.9933 |                0.0332 |
+| 28 |        25 |      0.4848 |   0.64   | 0.5517 |        0.9922 |                0.0249 |
+| 29 |       106 |      0.7596 |   0.7453 | 0.7524 |        0.988  |                0.0306 |
+| 30 |        11 |      0.3333 |   0.4545 | 0.3846 |        0.9954 |                0.033  |
+| 31 |        16 |      0.8421 |   1      | 0.9143 |        0.9986 |                0.0228 |
 
 ### Per cohort (held-out fold)
 
-_Not available: the run that produces this table did not complete._
+|          |   accuracy |   balanced_accuracy |   f1_macro |   f1_weighted |   precision_macro |   recall_macro |   specificity_macro |   npv_macro |   kappa |   kappa_quadratic |   mcc |   log_loss |   brier |   top2_accuracy |   c_index |   n |
+|:---------|-----------:|--------------------:|-----------:|--------------:|------------------:|---------------:|--------------------:|------------:|--------:|------------------:|------:|-----------:|--------:|----------------:|----------:|----:|
+| ACC      |     0.9474 |              0.9474 |     0.4865 |        0.973  |            0.5    |         0.4737 |                 nan |           0 |       0 |                 0 |     0 |     0.3594 |  0.1298 |          1      |    0.7442 |  19 |
+| BLCA     |     0.6707 |              0.6707 |     0.0892 |        0.8029 |            0.1111 |         0.0745 |                 nan |           0 |       0 |                 0 |     0 |     1.1366 |  0.4838 |          0.878  |    0.6962 |  82 |
+| BRCA     |     0.8387 |              0.8387 |     0.0608 |        0.9123 |            0.0667 |         0.0559 |                 nan |           0 |       0 |                 0 |     0 |     0.994  |  0.3841 |          0.8986 |    0.6523 | 217 |
+| CESC     |     0.8983 |              0.8983 |     0.1893 |        0.9464 |            0.2    |         0.1797 |                 nan |           0 |       0 |                 0 |     0 |     0.654  |  0.2435 |          0.9153 |    0.662  |  59 |
+| COADREAD |     0.8067 |              0.8067 |     0.0687 |        0.893  |            0.0769 |         0.0621 |                 nan |           0 |       0 |                 0 |     0 |     1.0709 |  0.3941 |          0.8908 |    0.7458 | 119 |
+| DLBC     |     1      |              1      |     1      |        1      |            1      |         1      |                 nan |         nan |     nan |               nan |     0 |     0.3185 |  0.094  |          1      |    0.6923 |  10 |
+| ESCA     |     0.8056 |              0.8056 |     0.1487 |        0.8923 |            0.1667 |         0.1343 |                 nan |           0 |       0 |                 0 |     0 |     1.0485 |  0.4373 |          0.8889 |    0.6638 |  36 |
+| GBM      |     0.7778 |              0.7778 |     0.125  |        0.875  |            0.1429 |         0.1111 |                 nan |           0 |       0 |                 0 |     0 |     1.0158 |  0.4461 |          0.9829 |    0.5372 | 117 |
+| HNSC     |     0.8476 |              0.8476 |     0.1019 |        0.9175 |            0.1111 |         0.0942 |                 nan |           0 |       0 |                 0 |     0 |     0.8061 |  0.2998 |          0.8857 |    0.6947 | 105 |
+| KICH     |     0.3077 |              0.3077 |     0.0941 |        0.4706 |            0.2    |         0.0615 |                 nan |           0 |       0 |                 0 |     0 |     1.9694 |  0.8578 |          0.6923 |    0.9474 |  13 |
+| KIRC     |     0.8431 |              0.8431 |     0.1144 |        0.9149 |            0.125  |         0.1054 |                 nan |           0 |       0 |                 0 |     0 |     0.8477 |  0.3327 |          0.902  |    0.7831 | 102 |
+| KIRP     |     0.6842 |              0.6842 |     0.0903 |        0.8125 |            0.1111 |         0.076  |                 nan |           0 |       0 |                 0 |     0 |     1.0708 |  0.4667 |          0.9123 |    0.8732 |  57 |
+| LAML     |     0.85   |              0.85   |     0.4595 |        0.9189 |            0.5    |         0.425  |                 nan |           0 |       0 |                 0 |     0 |     0.4967 |  0.1901 |          0.925  |    0.4644 |  40 |
+| LGG      |     0.9417 |              0.9417 |     0.2425 |        0.97   |            0.25   |         0.2354 |                 nan |           0 |       0 |                 0 |     0 |     0.683  |  0.25   |          0.9806 |    0.7506 | 103 |
+| LIHC     |     0.8784 |              0.8784 |     0.1871 |        0.9353 |            0.2    |         0.1757 |                 nan |           0 |       0 |                 0 |     0 |     0.6777 |  0.2898 |          0.973  |    0.6728 |  74 |
+| LUAD     |     0.708  |              0.708  |     0.0754 |        0.829  |            0.0909 |         0.0644 |                 nan |           0 |       0 |                 0 |     0 |     1.3702 |  0.5783 |          0.885  |    0.6382 | 113 |
+| LUSC     |     0.6633 |              0.6633 |     0.0997 |        0.7975 |            0.125  |         0.0829 |                 nan |           0 |       0 |                 0 |     0 |     1.3362 |  0.5654 |          0.8673 |    0.5784 |  98 |
+| MESO     |     0.7647 |              0.7647 |     0.1733 |        0.8667 |            0.2    |         0.1529 |                 nan |           0 |       0 |                 0 |     0 |     1.1082 |  0.4741 |          0.8824 |    0.681  |  17 |
+| OV       |     0.9145 |              0.9145 |     0.1911 |        0.9554 |            0.2    |         0.1829 |                 nan |           0 |       0 |                 0 |     0 |     0.8695 |  0.3505 |          0.9573 |    0.5878 | 117 |
+| PAAD     |     0.7027 |              0.7027 |     0.1376 |        0.8254 |            0.1667 |         0.1171 |                 nan |           0 |       0 |                 0 |     0 |     0.9584 |  0.4016 |          0.9459 |    0.6273 |  37 |
+| PCPG     |     0.7429 |              0.7429 |     0.2842 |        0.8525 |            0.3333 |         0.2476 |                 nan |           0 |       0 |                 0 |     0 |     0.9414 |  0.42   |          0.9714 |    0.7931 |  35 |
+| PRAD     |     1      |              1      |     1      |        1      |            1      |         1      |                 nan |         nan |     nan |               nan |     0 |     0.3389 |  0.0958 |          1      |    0.5128 |  99 |
+| SARC     |     0.4118 |              0.4118 |     0.0972 |        0.5833 |            0.1667 |         0.0686 |                 nan |           0 |       0 |                 0 |     0 |     1.6292 |  0.7342 |          0.7255 |    0.6104 |  51 |
+| SKCM     |     0.6966 |              0.6966 |     0.0684 |        0.8212 |            0.0833 |         0.0581 |                 nan |           0 |       0 |                 0 |     0 |     1.2937 |  0.4656 |          0.7865 |    0.6732 |  89 |
+| STAD     |     0.4091 |              0.4091 |     0.0387 |        0.5806 |            0.0667 |         0.0273 |                 nan |           0 |       0 |                 0 |     0 |     1.7052 |  0.7136 |          0.6705 |    0.5995 |  88 |
+| TGCT     |     0.8276 |              0.8276 |     0.1811 |        0.9057 |            0.2    |         0.1655 |                 nan |           0 |       0 |                 0 |     0 |     0.6607 |  0.2589 |          0.8621 |  nan      |  29 |
+| THCA     |     0.83   |              0.83   |     0.1134 |        0.9071 |            0.125  |         0.1038 |                 nan |           0 |       0 |                 0 |     0 |     0.9256 |  0.3674 |          0.9    |    0.9459 | 100 |
+| THYM     |     0.64   |              0.64   |     0.1301 |        0.7805 |            0.1667 |         0.1067 |                 nan |           0 |       0 |                 0 |     0 |     1.3892 |  0.581  |          0.8    |    0.8056 |  25 |
+| UCEC     |     0.7453 |              0.7453 |     0.1423 |        0.8541 |            0.1667 |         0.1242 |                 nan |           0 |       0 |                 0 |     0 |     1.1535 |  0.5122 |          0.8774 |    0.657  | 106 |
+| UCS      |     0.4545 |              0.4545 |     0.1562 |        0.625  |            0.25   |         0.1136 |                 nan |           0 |       0 |                 0 |     0 |     1.5385 |  0.7166 |          0.6364 |    0.5278 |  11 |
+| UVM      |     1      |              1      |     1      |        1      |            1      |         1      |                 nan |         nan |     nan |               nan |     0 |     0.2507 |  0.0636 |          1      |    0.5102 |  16 |
 
 ### Generalisation gap
 
-_Not available: the run that produces this table did not complete._
+|                    |   balanced_accuracy |   auroc |   log_loss |   c_index |    n |
+|:-------------------|--------------------:|--------:|-----------:|----------:|-----:|
+| train              |              0.8143 |  0.9927 |     0.7962 |    0.7932 | 5841 |
+| validation         |              0.7769 |  0.9878 |     0.8648 |    0.7678 | 2921 |
+| test               |              0.7519 |  0.986  |     0.8909 |    0.7754 | 2191 |
+| gap (train - test) |              0.0624 |  0.0067 |    -0.0947 |    0.0178 |  nan |
 
 ### Label permutation test
 
@@ -380,7 +543,32 @@ _Not available: the run that produces this table did not complete._
 
 `*_delta` is MOSAIC-GNN minus the baseline on the same patients; `*_q` is the Benjamini-Hochberg corrected p-value over the whole table.
 
-_Not available: the run that produces this table did not complete._
+| model                  |   bacc_delta |   bacc_q | bacc_sig   |   cindex_delta |   cindex_q | cindex_sig   |
+|:-----------------------|-------------:|---------:|:-----------|---------------:|-----------:|:-------------|
+| logistic_l2            |      -0.1897 |        0 | True       |       nan      |   nan      | False        |
+| logistic_l1            |      -0.1819 |        0 | True       |       nan      |   nan      | False        |
+| logistic_elasticnet    |      -0.1833 |        0 | True       |       nan      |   nan      | False        |
+| linear_svm             |      -0.175  |        0 | True       |       nan      |   nan      | False        |
+| svm_rbf                |      -0.1735 |        0 | True       |       nan      |   nan      | False        |
+| knn                    |       0.0612 |        0 | True       |       nan      |   nan      | False        |
+| naive_bayes            |       0.2082 |        0 | True       |       nan      |   nan      | False        |
+| lda_shrinkage          |      -0.1575 |        0 | True       |       nan      |   nan      | False        |
+| random_forest          |      -0.1621 |        0 | True       |       nan      |   nan      | False        |
+| extra_trees            |      -0.1435 |        0 | True       |       nan      |   nan      | False        |
+| pca_logistic           |      -0.1165 |        0 | True       |       nan      |   nan      | False        |
+| xgboost                |      -0.1871 |        0 | True       |       nan      |   nan      | False        |
+| lightgbm               |      -0.1891 |        0 | True       |       nan      |   nan      | False        |
+| mlp_early_fusion       |      -0.1463 |        0 | True       |         0.0099 |     0.2714 | False        |
+| late_fusion_mlp        |      -0.1836 |        0 | True       |         0.0088 |     0.2825 | False        |
+| hist_gradient_boosting |      -0.1795 |        0 | True       |       nan      |   nan      | False        |
+| mogonet_style          |      -0.1874 |        0 | True       |         0.0148 |     0.132  | False        |
+| patient_gcn            |      -0.1436 |        0 | True       |         0.0229 |     0.02   | True         |
+| patient_gat            |      -0.1458 |        0 | True       |         0.0196 |     0.0733 | False        |
+| patient_sage           |      -0.1641 |        0 | True       |         0.0118 |     0.2033 | False        |
+| cox_lasso              |     nan      |      nan | False      |        -0.0053 |     0.3811 | False        |
+| cox_ridge              |     nan      |      nan | False      |         0.0046 |     0.529  | False        |
+| cox_clinical_only      |     nan      |      nan | False      |         0.0398 |     0      | True         |
+| deepsurv               |     nan      |      nan | False      |         0.0164 |     0.105  | False        |
 
 ### Ablation
 
@@ -393,6 +581,12 @@ _Not available: the run that produces this table did not complete._
 ### Sample-size curve
 
 _Not available: the run that produces this table did not complete._
+
+### Capacity
+
+- trainable parameters: 275,190
+- training patients: 5,841
+- parameters per training patient: 47.1
 
 ## Target: `stage_binary`
 

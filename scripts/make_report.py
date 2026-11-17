@@ -69,8 +69,22 @@ def verdict(pairs: Dict[str, str]) -> str:
       "delta means MOSAIC-GNN is ahead.\n")
 
     any_table = False
+    # Collected across targets so that a result holding in more than one
+    # target framing can be reported as a replication rather than left for a
+    # reader to spot. Only what the tables say gets in here.
+    clin: Dict[str, tuple] = {}
     for target, runs in pairs.items():
         d = read_csv(f"{runs}/table4_paired_tests.csv")
+        if d is not None and "cox_clinical_only" in d.index \
+                and "cindex_delta" in d.columns:
+            v = d.at["cox_clinical_only", "cindex_delta"]
+            q = d.at["cox_clinical_only", "cindex_q"] \
+                if "cindex_q" in d.columns else None
+            s = bool(d.at["cox_clinical_only", "cindex_sig"]) \
+                if "cindex_sig" in d.columns else False
+            if pd.notna(v):
+                clin[target] = (float(v), None if q is None or pd.isna(q)
+                                else float(q), s)
         if d is None:
             A(f"**`{target}`** — paired tests not available: the primary-fold "
               f"run that produces them did not complete. No claim can be made "
@@ -110,6 +124,36 @@ def verdict(pairs: Dict[str, str]) -> str:
                 A("- No comparator is distinguishable from MOSAIC-GNN on this "
                   "metric.\n")
             A("")
+
+    # The one claim that holds in more than one target framing. Reported as a
+    # replication only when the tables actually show it in both, and reported
+    # as a failure to replicate when they do not.
+    if len(clin) > 1:
+        won = {t: v for t, v in clin.items() if v[2] and v[0] > 0}
+        A("### What replicates across targets\n")
+        if len(won) == len(clin):
+            A("MOSAIC-GNN significantly exceeds `cox_clinical_only` on "
+              "**every target tested** (" + ", ".join(
+                  f"`{t}` {v[0]:+.3f}"
+                  + ("" if v[1] is None else f", q={v[1]:.3f}")
+                  for t, v in won.items())
+              + "). The two targets label overlapping patients differently "
+                "and were fitted independently, so this is the same finding "
+                "arrived at twice rather than one result counted twice. It is "
+                "the strongest statement these tables support, and it is a "
+                "statement about what the molecular data adds over clinical "
+                "covariates — not about the architecture, which loses on "
+                "classification in both.\n")
+        else:
+            A("The gain over `cox_clinical_only` does **not** hold on every "
+              "target: " + ", ".join(
+                  f"`{t}` {v[0]:+.3f}"
+                  + ("" if v[1] is None else f", q={v[1]:.3f}")
+                  + ("" if v[2] else " (not significant)")
+                  for t, v in clin.items())
+              + ". A claim about molecular features adding prognostic "
+                "information must therefore be qualified by target, and must "
+                "not be stated as a general result.\n")
 
     if any_table:
         A("### How to word this\n")
