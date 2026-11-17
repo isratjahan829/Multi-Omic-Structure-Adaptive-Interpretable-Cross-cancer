@@ -155,7 +155,16 @@ from mosaic.config import Config
 from mosaic.pipeline import Experiment
 
 RUN_FULL  = True         # the full CV / baseline / ablation / LOCO suite
-OUT_DIR   = "/kaggle/working/runs" if os.path.isdir("/kaggle/working") else "./runs"
+
+# Deliberately NOT "./runs". That directory holds the synthetic smoke-test
+# fixtures, including five PNGs whose filenames are exactly the ones
+# build_manuscript.py reads -- see runs/README.md. Writing this notebook's
+# real but reduced-configuration output into the same directory mixes three
+# provenances in one folder and invites a reduced number, or a synthetic
+# figure, into the manuscript. Separate directory, so the provenance is
+# legible from the path alone.
+OUT_DIR   = ("/kaggle/working/runs_notebook" if os.path.isdir("/kaggle/working")
+             else "./runs_notebook")
 
 # ---- the two questions this notebook answers ------------------------------ #
 # "cohort" is tissue of origin: four classes, one per study. "stage" is the

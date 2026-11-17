@@ -289,9 +289,25 @@ this evidence would be overclaiming, and the draft does not make that claim.
    roughly ±0.01 is therefore the noise floor: differences smaller than it
    must not be read as effects. This is reported rather than hidden behind a
    single lucky seed.
-5. **Compute ceiling.** 200 genes and 20 epochs, for the measured reasons
-   above. A reviewer who wonders why the configuration is modest will find the
-   cost table rather than a silence.
+5. **Compute ceiling, and the reported numbers are not at the ceiling.** 200
+   genes and 20 epochs, for the measured reasons above. The notebook fitted
+   the same target at 120 genes and 6 epochs, which gives a second point on
+   the curve:
+
+   | Metric | 120 genes, 6 epochs | 200 genes, 20 epochs | Delta |
+   |---|---|---|---|
+   | balanced accuracy | 0.5580 | 0.5938 | −0.0358 |
+   | AUROC | 0.5980 | 0.6372 | −0.0392 |
+   | C-index | 0.6841 | 0.7233 | −0.0392 |
+
+   The reduction costs 0.036–0.039 on every discrimination metric — three to
+   four times the ±0.01 noise floor, so a real effect rather than seed
+   variation. Performance was still improving with genes and epochs when the
+   budget ran out, so these results understate what the architecture would
+   reach with more compute. Two points do not locate where the curve
+   flattens, and nothing here suggests the gap to the baselines would close:
+   they were not similarly constrained, and the gradient-boosted trees in
+   particular were fitted to convergence.
 6. **The 32-class head is badly calibrated.** ECE 0.273 on `cohort`, against
    0.035 on `stage_binary`. The multi-class probabilities are not usable as
    confidences without post-hoc recalibration, which this work does not do.
