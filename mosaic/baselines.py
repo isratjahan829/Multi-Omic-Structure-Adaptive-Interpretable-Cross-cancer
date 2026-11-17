@@ -143,8 +143,16 @@ def _classical_models(seed: int, n_features: int) -> Dict[str, object]:
         "extra_trees": ExtraTreesClassifier(
             n_estimators=500, min_samples_leaf=2, n_jobs=-1,
             class_weight="balanced", random_state=seed),
+        # class_weight="balanced" here too. This was the one classifier in the
+        # panel without it, which made its comparison unfair on a target as
+        # unbalanced as 32-cohort tissue of origin (1 084 BRCA against 36
+        # CHOL): on the first pan-cancer fold it scored balanced accuracy
+        # 0.196 and AUROC 0.536, against 0.942/0.999 for plain logistic
+        # regression. A crippled baseline is worse than no baseline, because
+        # it flatters everything it is compared against.
         "hist_gradient_boosting": HistGradientBoostingClassifier(
-            max_iter=300, learning_rate=0.06, max_depth=4, random_state=seed),
+            max_iter=300, learning_rate=0.06, max_depth=4,
+            class_weight="balanced", random_state=seed),
         "pca_logistic": Pipeline([
             ("sc", StandardScaler()),
             ("pca", PCA(n_components=min(64, n_features), random_state=seed)),
