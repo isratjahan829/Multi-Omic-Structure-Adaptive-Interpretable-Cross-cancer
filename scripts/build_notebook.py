@@ -484,7 +484,7 @@ These are the four tables the manuscript needs. They are slow — set
 
 code(r"""
 cv = None
-if RUN_FULL:
+if RUN_FULL and NB_FOLDS >= 2:
     print(f"cross-validation: {NB_REPEATS} repeat(s) x {NB_FOLDS} folds, "
           f"{EPOCHS} epochs, {MAX_GENES} genes "
           f"({NB_REPEATS * NB_FOLDS} fits). The manuscript uses 5 folds via "
@@ -492,6 +492,18 @@ if RUN_FULL:
     cv = exp.run_cv()
     summary = pd.DataFrame(cv["summary"]).T[["mean", "std", "n"]]
     display(summary.round(4))
+elif RUN_FULL:
+    # Every other phase below guards its own budget and says why it was
+    # skipped. This one did not, so MOSAIC_NB_FOLDS=1 -- an obvious choice
+    # for a quick pass -- reached StratifiedKFold(n_splits=1) and raised
+    # instead of skipping, leaving a traceback in the middle of an otherwise
+    # clean notebook. One fold is not a cross-validation; say so and move on.
+    print(f"cross-validation: NOT RUN (MOSAIC_NB_FOLDS={NB_FOLDS}). "
+          "Cross-validation needs at least 2 folds -- with one fold there is "
+          "no second split to average over, and scikit-learn rejects "
+          "n_splits=1. Set MOSAIC_NB_FOLDS=2 or more. The held-out fold "
+          "evaluated above is unaffected; it is a single split, reported as "
+          "one.")
 else:
     print("RUN_FULL is False - skipping repeated cross-validation.")
 """)
