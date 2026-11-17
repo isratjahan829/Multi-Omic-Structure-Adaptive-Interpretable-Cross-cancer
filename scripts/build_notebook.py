@@ -162,9 +162,31 @@ OUT_DIR   = "/kaggle/working/runs" if os.path.isdir("/kaggle/working") else "./r
 # four-class AJCC stage. They are different tasks, not two difficulties of
 # one task, and the contrast between them is the substantive result -- so run
 # the notebook once for each.
-TARGET    = os.environ.get("MOSAIC_TARGET", "cohort")   # cohort | stage
+TARGET    = os.environ.get("MOSAIC_TARGET", "cohort")   # cohort | stage | stage_binary
 MAX_GENES = int(os.environ.get("MOSAIC_MAX_GENES", 300))
 EPOCHS    = int(os.environ.get("MOSAIC_EPOCHS", 40))
+
+# ---- phase scope ---------------------------------------------------------- #
+# RUN_FULL on its own is not a scope. On the pan-cancer dataset (32 studies,
+# ~11 000 patients) the phases below expand to: repeated cross-validation,
+# twenty-four baselines on every fold, one full cross-validation PER ablation,
+# and a leave-one-cancer-out loop with one fit per cohort -- thirty-two fits.
+# Executed literally that is weeks of CPU, and an execution attempt of this
+# notebook ran for nearly two hours without completing a single phase.
+#
+# So each phase has its own budget, with defaults that complete in a sitting
+# on four CPU cores. Every phase prints the scope it actually used, and a
+# phase set to 0 prints that it was skipped and why. The manuscript numbers
+# come from the full schedule in scripts/run_pan.sh; this notebook's job is to
+# show the pipeline running end to end on the real data, with real outputs,
+# and to be honest about the difference.
+NB_FOLDS          = int(os.environ.get("MOSAIC_NB_FOLDS", 2))
+NB_REPEATS        = int(os.environ.get("MOSAIC_NB_REPEATS", 1))
+NB_BASELINE_FOLDS = int(os.environ.get("MOSAIC_NB_BASELINE_FOLDS", 1))
+NB_ABLATIONS      = int(os.environ.get("MOSAIC_NB_ABLATIONS", 2))   # 0 skips
+NB_LOCO           = int(os.environ.get("MOSAIC_NB_LOCO", 2))        # cohorts
+NB_PERMUTATIONS   = int(os.environ.get("MOSAIC_NB_PERMUTATIONS", 2))
+NB_SAMPLE_SIZE    = int(os.environ.get("MOSAIC_NB_SAMPLE_SIZE", 0)) # 0 skips
 
 
 # Cohort tables in `root`, whichever format they were written in.
@@ -237,6 +259,8 @@ cfg.data.n_genes_per_block = cfg.data.max_genes // 2
 cfg.train.device   = "cuda" if torch.cuda.is_available() else "cpu"
 cfg.train.epochs   = EPOCHS
 cfg.train.out_dir  = OUT_DIR
+cfg.train.outer_folds = NB_FOLDS
+cfg.train.n_repeats   = NB_REPEATS
 # Full-batch over ~1500 training patients x MAX_GENES x 3 relations does not
 # fit in 16 GB, so training is mini-batched. This changes the optimisation
 # trajectory and therefore the numbers; it is a real deviation, not a
@@ -452,6 +476,10 @@ These are the four tables the manuscript needs. They are slow — set
 code(r"""
 cv = None
 if RUN_FULL:
+    print(f"cross-validation: {NB_REPEATS} repeat(s) x {NB_FOLDS} folds, "
+          f"{EPOCHS} epochs, {MAX_GENES} genes "
+          f"({NB_REPEATS * NB_FOLDS} fits). The manuscript uses 5 folds via "
+          f"scripts/run_pan.sh; fold counts are reported with every number.")
     cv = exp.run_cv()
     summary = pd.DataFrame(cv["summary"]).T[["mean", "std", "n"]]
     display(summary.round(4))
@@ -464,9 +492,14 @@ baseline_table = None
 if RUN_FULL:
     from mosaic.baselines import run_baseline_suite
     per_fold, per_fold_preds, per_fold_split = [], [], []
+    print(f"baseline panel: {NB_BASELINE_FOLDS} of {NB_FOLDS} folds. "
+          f"Twenty-four models over {len(idx)} patients is the slowest phase "
+          f"here; the fold count is reported with every baseline number.")
     for f, (tr, te) in enumerate(skf.split(idx, strat)):
+        if f >= NB_BASELINE_FOLDS:
+            break
         tn, _, dt = exp.build_fold(tr)
-        print(f"baseline fold {f + 1}/5")
+        print(f"baseline fold {f + 1}/{NB_BASELINE_FOLDS}")
         m, pr = run_baseline_suite(
             tn.x.numpy(), tn.clinical.numpy(), dt.label, dt.time, dt.event,
             tr, te, n_classes, block_names=sorted(sk.blocks),
@@ -495,11 +528,19 @@ else:
 
 code(r"""
 ablation_table = None
-if RUN_FULL:
+if RUN_FULL and NB_ABLATIONS > 0:
     from mosaic.cli import ABLATIONS
     from mosaic.config import Config as C
     rows = {}
-    for name, override in ABLATIONS.items():
+    # Each ablation is a whole cross-validation, so the full set is
+    # len(ABLATIONS) x NB_FOLDS fits. "full" is always included, because every
+    # other row is only meaningful as a difference from it.
+    chosen = ["full"] + [k for k in ABLATIONS if k != "full"][:NB_ABLATIONS]
+    print(f"ablation: {len(chosen)} of {len(ABLATIONS)} variants "
+          f"({', '.join(chosen)}), 1 repeat x {NB_FOLDS} folds each. "
+          f"The manuscript's ablation table comes from scripts/run_pan.sh.")
+    for name, override in [(k, ABLATIONS[k]) for k in chosen
+                           if k in ABLATIONS]:
         mcfg = type(cfg.model)(**{**cfg.model.__dict__, **override})
         tcfg = type(cfg.train)(**{**cfg.train.__dict__, "n_repeats": 1})
         sub = C(data=cfg.data, graph=cfg.graph, model=mcfg, loss=cfg.loss,
@@ -515,14 +556,22 @@ if RUN_FULL:
         kind="barh", figsize=(7, 4), title="Change vs full model (negative = component helps)")
     plt.tight_layout(); plt.savefig(f"{OUT_DIR}/fig_ablation.png", dpi=200); plt.show()
 else:
-    print("RUN_FULL is False - skipping ablations.")
+    print("ablation: NOT RUN (MOSAIC_NB_ABLATIONS=0). Each variant is a full "
+          "cross-validation, so the complete set is 8 x NB_FOLDS fits. The "
+          "manuscript's ablation table comes from scripts/run_pan.sh.")
 """)
 
 code(r"""
 loco_table = None
-if RUN_FULL:
+if RUN_FULL and NB_LOCO > 0:
     rows = {}
-    for held in cfg.data.cohorts:
+    held_out = list(cfg.data.cohorts)[:NB_LOCO]
+    print(f"leave-one-cancer-out: {len(held_out)} of "
+          f"{len(cfg.data.cohorts)} cohorts ({', '.join(held_out)}), one fit "
+          f"each. On the {TARGET} target note that a held-out class is never "
+          f"seen in training, so its balanced accuracy is near zero by "
+          f"construction -- only the survival transfer carries information.")
+    for held in held_out:
         a, b = exp.offsets[held]
         te = np.arange(a, b)
         tr = np.setdiff1d(idx, te)
@@ -538,7 +587,9 @@ if RUN_FULL:
     loco_table = pd.DataFrame(rows).T
     display(loco_table.round(3))
 else:
-    print("RUN_FULL is False - skipping leave-one-cancer-out.")
+    print("leave-one-cancer-out: NOT RUN (MOSAIC_NB_LOCO=0). One fit per "
+          "cohort means 32 fits on the pan-cancer data. The manuscript's "
+          "transfer table comes from scripts/run_pan.sh.")
 """)
 
 # --------------------------------------------------------------------------- #
@@ -666,9 +717,15 @@ code(r"""
 # Label permutation: expensive, so it is guarded. Run it at least once for the
 # write-up -- it is the single most convincing panel in the supplement.
 perm_table = None
-if RUN_FULL:
+if RUN_FULL and NB_PERMUTATIONS > 0:
+    # With B permutations the smallest attainable p-value is 1/(B+1), so a
+    # small B bounds the p-value rather than measuring it. That limit is
+    # printed with the result instead of being left for a reader to work out.
+    print(f"permutation null: {NB_PERMUTATIONS} permutation(s); the smallest "
+          f"attainable p is {1 / (NB_PERMUTATIONS + 1):.3f}. Each permutation "
+          f"is a full retrain on shuffled labels.")
     perm_df = permutation_test(exp, tensors, fit_idx, val_idx, test_idx,
-                               n_classes, n_permutations=10,
+                               n_classes, n_permutations=NB_PERMUTATIONS,
                                seed=cfg.train.seed)
     display(perm_df.round(4))
 
@@ -694,12 +751,15 @@ if RUN_FULL:
     perm_table.to_csv(f"{OUT_DIR}/tableS2_permutation_test.csv")
     display(perm_table.round(4))
 else:
-    print("RUN_FULL is False - skipping the permutation test.")
+    print("permutation null: NOT RUN (MOSAIC_NB_PERMUTATIONS=0). Each "
+          "permutation is a full retrain. The manuscript's leakage control "
+          "comes from scripts/run_pan.sh.")
 """)
 
 code(r"""
 ss_df = None
-if RUN_FULL:
+if RUN_FULL and NB_SAMPLE_SIZE > 0:
+    print("sample-size curve: one retrain per fraction.")
     ss_df = sample_size_curve(exp, tensors, fit_idx, val_idx, test_idx,
                               n_classes, fractions=(0.25, 0.5, 0.75, 1.0),
                               seed=cfg.train.seed)
@@ -713,7 +773,9 @@ if RUN_FULL:
     plt.tight_layout(); plt.savefig(f"{OUT_DIR}/fig_sample_size.png", dpi=200)
     plt.show()
 else:
-    print("RUN_FULL is False - skipping the sample-size curve.")
+    print("sample-size curve: NOT RUN (MOSAIC_NB_SAMPLE_SIZE=0). It retrains "
+          "once per fraction of the training set; at pan-cancer scale that is "
+          "four more full fits for a supplementary panel.")
 """)
 
 # --------------------------------------------------------------------------- #

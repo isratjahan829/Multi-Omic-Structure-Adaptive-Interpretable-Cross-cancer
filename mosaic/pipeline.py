@@ -423,10 +423,20 @@ class Experiment:
                     best_state = copy.deepcopy(model.state_dict())
                 else:
                     stale += every
-                if (epoch + 1) % save_every == 0:
-                    _save(epoch + 1)
                 if stale >= cfg.train.patience:
                     break
+
+            # Checkpointing belongs to the epoch loop, NOT to the evaluation
+            # block above. While it sat inside that block a save needed both
+            # (epoch + 1) % every == 0 and (epoch + 1) % save_every == 0, so
+            # at every=5, save_every=3 the two never coincided before epoch 15
+            # and at save_every=2 the first save was epoch 10 -- which is the
+            # cadence the setting was changed to avoid. Lowering save_every had
+            # no effect at all, verified on a live fit: nothing was on disk at
+            # epoch 5 with save_every=2. The save now happens on its own
+            # schedule, which is the only way the number means what it says.
+            if (epoch + 1) % save_every == 0:
+                _save(epoch + 1)
 
         if best_state is not None:
             model.load_state_dict(best_state)
