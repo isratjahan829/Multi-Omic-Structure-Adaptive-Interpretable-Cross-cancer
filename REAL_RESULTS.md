@@ -294,20 +294,33 @@ this evidence would be overclaiming, and the draft does not make that claim.
    the same target at 120 genes and 6 epochs, which gives a second point on
    the curve:
 
-   | Metric | 120 genes, 6 epochs | 200 genes, 20 epochs | Delta |
-   |---|---|---|---|
-   | balanced accuracy | 0.5580 | 0.5938 | −0.0358 |
-   | AUROC | 0.5980 | 0.6372 | −0.0392 |
-   | C-index | 0.6841 | 0.7233 | −0.0392 |
+   Three budgets have now been fitted on `stage_binary`, for MOSAIC-GNN and
+   for the strongest baseline:
 
-   The reduction costs 0.036–0.039 on every discrimination metric — three to
-   four times the ±0.01 noise floor, so a real effect rather than seed
-   variation. Performance was still improving with genes and epochs when the
-   budget ran out, so these results understate what the architecture would
-   reach with more compute. Two points do not locate where the curve
-   flattens, and nothing here suggests the gap to the baselines would close:
-   they were not similarly constrained, and the gradient-boosted trees in
-   particular were fitted to convergence.
+   | Genes / epochs | MOSAIC-GNN | `lightgbm` | Gap |
+   |---|---|---|---|
+   | 60 / 3 | 0.5687 | 0.6745 | 0.106 |
+   | 120 / 6 | 0.5717 | 0.6820 | 0.110 |
+   | 200 / 20 | 0.5938 | 0.6851 | 0.091 |
+
+   Both families improve with more genes and the model improves faster —
+   0.025 against 0.011 from 60 to 200 — so these results do understate what
+   the architecture would reach with more compute. That is the favourable
+   half and it is a measurement, not an assertion.
+
+   The other half is in the same table. The gap runs 0.106, 0.110, 0.091: it
+   narrows only at the final step and by less than the ±0.019 fold spread,
+   so extrapolating the model past the baseline is not supported. Stated
+   bluntly, because a reviewer will compute it: **`lightgbm` at 60 genes
+   (0.6745) beats MOSAIC-GNN at 200 genes (0.5938) by 0.081** — the baseline
+   with a third of the features outperforms the proposed architecture with
+   all of them. No framing of the compute ceiling survives that sentence, and
+   it is written here rather than left to be discovered.
+
+   Note the two columns are not strictly comparable: the reduced figures are
+   2-fold cross-validation means and the 200-gene figure is a single held-out
+   fold. Compare the two CV rows with each other; treat the manuscript row as
+   indicative.
 6. **The 32-class head is badly calibrated.** ECE 0.273 on `cohort`, against
    0.035 on `stage_binary`. The multi-class probabilities are not usable as
    confidences without post-hoc recalibration, which this work does not do.
