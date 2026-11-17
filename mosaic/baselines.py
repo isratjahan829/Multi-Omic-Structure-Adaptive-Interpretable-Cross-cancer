@@ -471,8 +471,22 @@ def random_survival_forest(xtr, ttr, etr, xte, seed: int = 0) -> Optional[np.nda
     except ImportError:
         return None
     y = Surv.from_arrays(event=etr.astype(bool), time=np.maximum(ttr, 1e-3))
-    rsf = RandomSurvivalForest(n_estimators=300, min_samples_leaf=5, n_jobs=-1,
-                               random_state=seed)
+    # n_jobs=-1 with 300 unbounded trees over ~8 700 patients and 600 features
+    # was OOM-killed on this 16 GB container: every worker holds its own copy
+    # of the bootstrap sample and the trees grow until the leaf limit, which on
+    # survival data means very deep. A SIGKILL cannot be caught, so the time
+    # budget and the try/except around this call were both useless -- the
+    # process simply died and took the whole panel's results with it, which is
+    # why the memory has to be bounded here rather than handled afterwards.
+    #
+    # Two threads instead of all four, a depth cap and a square-root feature
+    # subsample keep the peak inside the box. These are ordinary
+    # random-forest settings, not a crippling: the model still sees every
+    # patient and samples features per split the way a forest is meant to.
+    n_jobs = int(os.environ.get("MOSAIC_RSF_JOBS", "2"))
+    rsf = RandomSurvivalForest(n_estimators=300, min_samples_leaf=5,
+                               max_depth=12, max_features="sqrt",
+                               n_jobs=n_jobs, random_state=seed)
     rsf.fit(xtr, y)
     return rsf.predict(xte)
 

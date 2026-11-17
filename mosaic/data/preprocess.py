@@ -125,6 +125,18 @@ LEAKY_FOR_TARGET: Dict[str, Tuple[str, ...]] = {
         "AJCC", "TUMOR_STAGE", "PATH_T_STAGE", "PATH_N_STAGE", "PATH_M_STAGE",
         "CLIN_T_STAGE", "CLIN_N_STAGE", "CLIN_M_STAGE", "STAGE_EVENT",
     ),
+    # Same patterns as "stage": stage_binary is the same label collapsed to
+    # early (I-II) against late (III-IV), so the same clinical columns give it
+    # away. Without this entry leaky_columns() looked the target up, missed,
+    # and filtered nothing -- on the pan-cancer data logistic regression then
+    # scored balanced accuracy 1.000 on stage_binary, because
+    # AJCC_PATHOLOGIC_TUMOR_STAGE and PATH_T/N/M_STAGE were sitting in the
+    # feature matrix. A perfect score on a hard clinical endpoint is a leak,
+    # never a result.
+    "stage_binary": (
+        "AJCC", "TUMOR_STAGE", "PATH_T_STAGE", "PATH_N_STAGE", "PATH_M_STAGE",
+        "CLIN_T_STAGE", "CLIN_N_STAGE", "CLIN_M_STAGE", "STAGE_EVENT",
+    ),
     "grade": (
         "GRADE",
     ),
@@ -147,7 +159,20 @@ def leaky_columns(cfg: DataConfig) -> List[str]:
     Returns the configured clinical column names that match a leaky pattern,
     so a caller can both filter them and report exactly what was dropped.
     """
-    patterns = LEAKY_FOR_TARGET.get(str(cfg.class_target).lower(), ())
+    # An unknown target must not silently mean "nothing leaks". That is how
+    # stage_binary came to be trained with AJCC_PATHOLOGIC_TUMOR_STAGE among
+    # its features: the target was added here as a label but never added to
+    # LEAKY_FOR_TARGET, .get() returned an empty tuple, and the guard quietly
+    # did nothing. Refusing is the only safe default -- a missing entry is a
+    # mistake in this file, not a statement that the target is clean.
+    target = str(cfg.class_target).lower()
+    if target not in LEAKY_FOR_TARGET:
+        raise KeyError(
+            f"no leakage patterns defined for class_target={target!r}. Add an "
+            f"entry to LEAKY_FOR_TARGET naming the clinical columns that give "
+            f"this label away; known targets are "
+            f"{sorted(LEAKY_FOR_TARGET)}.")
+    patterns = LEAKY_FOR_TARGET[target]
     if not patterns:
         return []
     cols = list(cfg.clinical_numeric) + list(cfg.clinical_categorical)
