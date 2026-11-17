@@ -2,7 +2,12 @@
 
 **M**ulti-**O**mic **S**tructure-**A**daptive **I**nterpretable **C**ross-cancer
 **G**raph **N**eural **N**etwork for pan-cancer prognosis and biomarker discovery
-on TCGA (BLCA, LIHC, SKCM, THCA).
+on all 32 TCGA PanCanAtlas studies — 10 953 patients, 3 543 deaths — with every
+omic block restricted to the MSK-IMPACT 468 gene panel, so all cohorts share one
+feature space fixed before any data was inspected.
+
+Real results, and what did not run, are in [`REAL_RESULTS.md`](REAL_RESULTS.md).
+Preparing this for a journal: [`docs/JOURNAL_SUBMISSION.md`](docs/JOURNAL_SUBMISSION.md).
 
 ---
 
@@ -107,9 +112,25 @@ rather than zero.
 
 Prefer a notebook? `notebooks/mosaic_gnn.ipynb` runs the whole story with
 figures. It locates the `mosaic` package automatically (working directory, a
-Kaggle dataset, or an uploaded `mosaic-gnn.zip`) and falls back to synthetic
-data if the TCGA files are not mounted, so it always runs end to end. Heavy
-cells are guarded by a `RUN_FULL` flag.
+Kaggle dataset, or an uploaded `mosaic-gnn.zip`). If the TCGA files are not
+mounted it falls back to synthetic data so it still runs end to end, but it
+prints a loud banner saying every number below it is synthetic and may not be
+quoted — see section 8. Heavy cells are bounded by per-phase budgets.
+
+To reproduce the real pan-cancer run instead, in two commands:
+
+```bash
+python scripts/fetch_cbioportal_api.py --out ./data_pan   # 32 studies, public API
+bash scripts/run_pan.sh                                   # restart-safe; re-run as often as needed
+python scripts/make_report.py --targets cohort:runs_pan_cohort \
+       stage_binary:runs_pan_stage --out REAL_RESULTS.md \
+       --preamble docs/real_results_preamble.md
+```
+
+`run_pan.sh` writes a marker per finished phase and every fit checkpoints its
+own epochs, so it survives being interrupted at any point — which matters,
+because the container this was developed in is rebuilt about every
+forty-five minutes.
 
 From the command line:
 
@@ -251,11 +272,18 @@ thing a reviewer will probe, so it is handled explicitly rather than hoped for.
 * `sample_size_curve` — test performance vs number of training patients, which
   separates "needs more data" from "too much model" (Table S3, Figure S2).
 
-Measured on the synthetic demo after these controls: balanced accuracy
-0.337 train vs 0.337 test (**gap 0.000**) and C-index 0.676 vs 0.624
-(**gap 0.052**, down from 0.089 before SWA and gene dropout). The permutation
-null landed at balanced accuracy 0.22-0.30 (chance 0.25) and C-index 0.47-0.55
-(chance 0.50) — i.e. no leakage left in the pipeline.
+The gap and permutation figures for the real pan-cancer run are in
+[`REAL_RESULTS.md`](REAL_RESULTS.md), together with the phases that did not
+complete. Do not quote numbers from the synthetic smoke test.
+
+One of these controls earned its place during this work. The binary stage
+target had no entry in the leakage pattern table, so the guard's lookup
+returned an empty list and filtered nothing: the AJCC stage column and the
+pathological T, N and M columns sat in the feature matrix as predictors of
+stage, and logistic regression scored **balanced accuracy 1.000**. With the
+entry added and the cached results discarded, the same model scores **0.685**.
+An unrecognised target now raises rather than silently filtering nothing.
+A perfect score on a hard clinical endpoint is a leak, never a result.
 
 If the gap is still too wide on your data, turn these knobs in order:
 `gene_dropout` → 0.25, `max_genes` down, `gene_layers` → 2,
@@ -263,28 +291,46 @@ If the gap is still too wide on your data, turn these knobs in order:
 
 ---
 
-## 8. About the executed demo output
+## 8. Reading the notebook and the run outputs
 
-`notebooks/mosaic_gnn_executed.ipynb` and `runs/` in the release archive were
-produced on the **synthetic** cohorts (the TCGA files are not redistributable),
-with a reduced budget: 200 genes, 30 epochs, 4 folds, 1 repeat, ablations on
-2 folds. Read them as a template for the tables and figures, not as results.
+`notebooks/mosaic_gnn.ipynb` runs the pipeline end to end on the real
+pan-cancer data. It is **not** the source of the manuscript numbers: each
+phase has its own budget so the notebook finishes in a sitting, and every
+cell prints the scope it actually used — a phase set to zero prints that it
+was skipped and why. The manuscript numbers come from the full schedule,
+`scripts/run_pan.sh`, and land in `runs_pan_cohort/` and `runs_pan_stage/`.
 
-Two artefacts of the synthetic data are worth knowing before you compare:
+Those budgets exist because `RUN_FULL = True` on this dataset expands to
+repeated cross-validation, 24 baselines on every fold, one full
+cross-validation per ablation, and one fit per cohort for
+leave-one-cancer-out — 32 fits. An execution attempt ran 108 minutes without
+completing a single phase. Override them if you have the compute:
 
-* the **classification** task saturates — the planted label is a monotone
-  function of a driver-gene burden that tree ensembles recover exactly, so
-  eight models tie at 1.000 balanced accuracy. On real staging labels that
-  column separates properly;
-* **IBS and the Brier columns are only populated for MOSAIC-GNN**, because it
-  is the only model in the suite with a survival-curve head. Cox-type
-  baselines produce a risk score, so they get C-index / time-dependent AUC /
-  hazard ratio but no calibrated curve. Say this in the table caption rather
-  than leaving the reader to wonder about the blanks.
+```bash
+MOSAIC_NB_FOLDS=5 MOSAIC_NB_BASELINE_FOLDS=5 MOSAIC_NB_ABLATIONS=7 \
+MOSAIC_NB_LOCO=32 MOSAIC_NB_PERMUTATIONS=100 MOSAIC_NB_SAMPLE_SIZE=1 \
+  python scripts/build_notebook.py
+```
 
-The **survival** side of the demo does behave sensibly and is the part worth
-reading: MOSAIC-GNN 0.641, random survival forest 0.626, clinical-only Cox
-0.611, MOGONET-style 0.589, patient-graph GNNs 0.55-0.57, penalised Cox
-0.51-0.54.
+Two things to know before comparing any table:
+
+* **IBS and the Brier columns are populated only for models with a
+  survival-curve head.** Cox-type baselines produce a risk ranking, so they
+  get C-index, time-dependent AUC and hazard ratio but no calibrated curve.
+  A blank cell means the metric is undefined for that model, not that a
+  result is missing — say so in the caption.
+* **`random_survival_forest` is reported as not run.** At this scale it was
+  killed by the kernel for memory even when bounded in depth, features and
+  threads, and that signal cannot be caught in-process, so each attempt
+  destroyed the whole 24-model panel. It is skipped by name
+  (`MOSAIC_SKIP_BASELINES`) so the other 23 models survive, and reported with
+  that reason rather than dropped quietly.
+
+If a notebook run ever prints `!! REAL DATASET NOT FOUND - EVERY NUMBER BELOW
+IS SYNTHETIC !!`, stop and fix the data path. That banner exists because an
+earlier configuration cell tested for a `.csv` extension while the merge
+writes `.parquet`, so it silently fell back to 160 synthetic patients and
+printed tables that looked entirely real — the source of a balanced accuracy
+of 0.313 quoted in early drafts.
 
 ---
