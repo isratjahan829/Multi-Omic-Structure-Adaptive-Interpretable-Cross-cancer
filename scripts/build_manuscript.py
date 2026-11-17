@@ -173,11 +173,41 @@ def collect_facts(targets: Dict[str, str]) -> Dict[str, dict]:
             d = pd.read_csv(t4, index_col=0)
             sig = [c for c in d.columns if c.endswith("_sig")]
             if sig:
-                f["paired"] = {
-                    "n_compared": int(len(d)),
-                    "n_significant": {c: int(d[c].fillna(False)
-                                             .astype(bool).sum())
-                                      for c in sig}}
+                p = {"n_compared": int(len(d)),
+                     "n_significant": {c: int(d[c].fillna(False)
+                                              .astype(bool).sum())
+                                       for c in sig}}
+                # Per-metric win/loss/tie counts and the per-model deltas, so
+                # that a sentence like "eight of twenty comparators are
+                # significantly better" is read out of the table instead of
+                # being counted by hand into the prose, where it would quietly
+                # go stale the next time the run changes.
+                for stem, dcol, qcol, scol in (
+                        ("bacc", "bacc_delta", "bacc_q", "bacc_sig"),
+                        ("cindex", "cindex_delta", "cindex_q", "cindex_sig")):
+                    if dcol not in d.columns or scol not in d.columns:
+                        continue
+                    sub = d.dropna(subset=[dcol])
+                    if sub.empty:
+                        continue
+                    flag = sub[scol].fillna(False).astype(bool)
+                    p[stem] = {
+                        "n_tested": int(len(sub)),
+                        # "worse" = the baseline beats MOSAIC-GNN.
+                        "n_worse": int((flag & (sub[dcol] < 0)).sum()),
+                        "n_better": int((flag & (sub[dcol] > 0)).sum()),
+                        "n_tied": int((~flag).sum()),
+                        "worse_models": [str(m) for m in
+                                         sub.index[flag & (sub[dcol] < 0)]],
+                        "better_models": [str(m) for m in
+                                          sub.index[flag & (sub[dcol] > 0)]]}
+                p["models"] = {
+                    str(m): {c: (None if pd.isna(d.at[m, c])
+                                 else (bool(d.at[m, c]) if c.endswith("_sig")
+                                       else float(d.at[m, c])))
+                             for c in d.columns}
+                    for m in d.index}
+                f["paired"] = p
 
         # ---- the leakage control, from the permutation table ------------- #
         tp = os.path.join(runs, "tableS2_permutation_test.csv")

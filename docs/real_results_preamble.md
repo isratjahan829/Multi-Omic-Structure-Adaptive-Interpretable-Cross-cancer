@@ -134,6 +134,47 @@ approaches the tissue numbers. That contrast — near-ceiling tissue, modest
 stage, same patients, same genes, same pipeline — is a finding about what bulk
 multi-omics encodes, and it is stated plainly here rather than buried.
 
+### Where MOSAIC-GNN loses on tissue of origin, and why that was predictable
+
+On the `cohort` target MOSAIC-GNN reaches balanced accuracy **0.751** against
+logistic regression's **0.942**. That is not a narrow miss; it is a loss of
+nineteen points to the simplest model in the panel, and no reading of the
+table makes it anything else.
+
+There is a mechanical reason, and it is stated here as an explanation under
+test rather than as a defence. The architecture contains a cohort adversary
+trained through gradient reversal, whose entire purpose is to remove
+cohort-identifying information from the shared representation so that what
+remains transfers across cancer types. Scoring that model on cohort
+classification measures how well it recovers precisely the information it was
+regularised to discard. Logistic regression operates under no such constraint
+and is free to key on tissue-specific mutation patterns, which a 468-gene
+panel supplies in abundance.
+
+The honest position is therefore: `cohort` is the wrong benchmark for this
+architecture, and it would have been the wrong benchmark whatever the result.
+It is reported because it was run, and because a report that dropped the
+target where the model does badly would not be worth reading. The
+`no_disentangle` ablation is the direct test — if removing the adversary
+recovers most of the nineteen points, the explanation holds; if it does not,
+the explanation is wrong and the loss is unexplained. Until that ablation
+runs, neither conclusion may be asserted, and this paragraph claims only that
+the prediction is falsifiable.
+
+### Calibration on the 32-class head is poor
+
+Expected calibration error on the `cohort` target is **0.273**, against 0.035
+on `stage_binary`. The 32-class probability outputs are badly calibrated and
+should not be read as confidences; a clinical application would need
+post-hoc recalibration before using them for anything. This is a genuine
+weakness of the run, it is listed in Limitations, and it is not softened
+anywhere in the write-up. Mean predictive entropy of 1.896 nats over 32
+classes says the same thing from the other direction: the head is diffuse.
+
+The binary head is a different matter — ECE 0.035 at 0.594 balanced accuracy
+is reasonable, which suggests the problem is the 32-way softmax under a
+disentanglement penalty rather than the calibration machinery itself.
+
 ### The one number that was a leak, and how it was caught
 
 On the first pan-cancer `stage_binary` run, logistic regression scored
@@ -221,6 +262,15 @@ with FDR reported. Neither has been done here, and neither is claimed.
 5. **Compute ceiling.** 200 genes and 20 epochs, for the measured reasons
    above. A reviewer who wonders why the configuration is modest will find the
    cost table rather than a silence.
+6. **The 32-class head is badly calibrated.** ECE 0.273 on `cohort`, against
+   0.035 on `stage_binary`. The multi-class probabilities are not usable as
+   confidences without post-hoc recalibration, which this work does not do.
+7. **MOSAIC-GNN is beaten on both classification targets**, by a wide margin
+   on `cohort` (0.751 against 0.942) and by a significant margin on
+   `stage_binary` by eight of twenty comparators. The survival side is where
+   the architecture is competitive. A write-up that leads with the
+   architecture rather than with what the molecular data adds over clinical
+   covariates would be overclaiming, and the abstract is worded accordingly.
 
 ## The pipeline was audited, and it needed to be
 
