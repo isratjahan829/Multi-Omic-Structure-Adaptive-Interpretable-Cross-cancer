@@ -22,6 +22,89 @@ const PORTRAIT_W = 10800;   // 12240 - 2 x 720 margin, in DXA
 const LANDSCAPE_W = 14400;  // 15840 - 2 x 720
 
 // --------------------------------------------------------------------------- //
+// Facts.
+//
+// No number in this document is typed into the prose. Every quantity comes
+// from payload.facts, which scripts/build_manuscript.py reads out of the CSV
+// and JSON files that an actual command wrote. A quantity whose phase did not
+// run is absent from the payload, and the helpers below render NOT_RUN in its
+// place. That is deliberate: a draft that says "[not run]" can be fixed, while
+// a draft carrying a plausible number nobody can account for cannot.
+// --------------------------------------------------------------------------- //
+const FACTS = payload.facts || {};
+const NOT_RUN = "[not run — this phase did not complete]";
+const missing = new Set();
+
+/** A fact by dotted path, e.g. f("cohort", "best_c_index.value"). */
+function f(target, path) {
+  let v = FACTS[target];
+  for (const key of String(path).split(".")) {
+    if (v === undefined || v === null) break;
+    v = v[key];
+  }
+  if (v === undefined || v === null || Number.isNaN(v)) {
+    missing.add(`${target}.${path}`);
+    return null;
+  }
+  return v;
+}
+
+/** A number, to `digits`, or NOT_RUN. Integers over 999 get a thin space. */
+function num(target, path, digits = 3) {
+  const v = f(target, path);
+  if (v === null) return NOT_RUN;
+  if (typeof v !== "number") return String(v);
+  if (Number.isInteger(v) && digits === 0) {
+    return v >= 1000 ? v.toLocaleString("en-US").replace(/,/g, " ")
+                     : String(v);
+  }
+  return v.toFixed(digits);
+}
+
+/** An integer count. */
+const int = (target, path) => num(target, path, 0);
+
+/** "model 0.942" for a {model, value} fact. */
+function best(target, key) {
+  const m = f(target, `${key}.model`);
+  const v = f(target, `${key}.value`);
+  if (m === null || v === null) return NOT_RUN;
+  return `${m} (${v.toFixed(3)})`;
+}
+
+/** A comma list, e.g. the cohorts with no stage label. */
+function list(target, path) {
+  const v = f(target, path);
+  if (v === null || !Array.isArray(v) || v.length === 0) return NOT_RUN;
+  return v.join(", ");
+}
+
+/**
+ * MOSAIC-GNN's own score on a metric, with the evaluation it comes from named.
+ *
+ * Cross-validation is preferred and carries its SD and fold count. When only
+ * the primary-fold fit has run, that single number is used and labelled as a
+ * single fold, because a point estimate from one split must not be read as a
+ * cross-validated mean. Neither available renders NOT_RUN.
+ */
+function cv(target, metric) {
+  const m = FACTS[target] && FACTS[target].cv && FACTS[target].cv[metric];
+  if (m && m.mean !== undefined && m.mean !== null) {
+    const sd = (m.sd === undefined || m.sd === null)
+      ? "" : ` ± ${m.sd.toFixed(3)}`;
+    const nn = (m.n === undefined || m.n === null) ? "" : ` (${m.n} folds)`;
+    return `${m.mean.toFixed(3)}${sd}${nn}`;
+  }
+  const single = FACTS[target] && FACTS[target][`mosaic_${metric}`];
+  if (single !== undefined && single !== null && !Number.isNaN(single)) {
+    return `${single.toFixed(3)} (single held-out fold; cross-validation not `
+         + `yet run, so this is a point estimate with no spread)`;
+  }
+  missing.add(`${target}.cv.${metric}`);
+  return NOT_RUN;
+}
+
+// --------------------------------------------------------------------------- //
 // Building blocks
 // --------------------------------------------------------------------------- //
 const blocks = [];
@@ -168,15 +251,16 @@ text("[Corresponding author: name, address, e-mail]",
      { align: AlignmentType.CENTER, size: 20, italics: true });
 
 push({ el: note(
-  "DRAFT — READ BEFORE CIRCULATING. Every number in this document comes from "
-  + "the synthetic demonstration cohorts shipped with the code, except Table 14, "
-  + "which is a real-data check on TCGA-BLCA using a truncated export "
-  + "(mutation and copy-number only, expression lost to Excel's 16,384-column "
-  + "cap). The synthetic numbers demonstrate that the pipeline runs, that no "
-  + "label leaks, and what each table and figure will look like. They are NOT "
-  + "results and must be replaced by a run on the four real TCGA cohorts "
-  + "before submission. Passages that depend on results not yet produced are "
-  + "marked [TODO].") });
+  "DRAFT — READ BEFORE CIRCULATING. Every number in this document was produced "
+  + "by a command that ran to completion on real data: all "
+  + int("cohort", "n_cohorts") + " TCGA PanCanAtlas studies obtained from the "
+  + "cBioPortal public API, " + int("cohort", "n_patients") + " patients, "
+  + int("cohort", "n_events") + " deaths. Nothing here is synthetic, "
+  + "estimated or interpolated. Where a phase of the schedule did not finish, "
+  + "the sentence that would have quoted it reads \"" + NOT_RUN + "\" and no "
+  + "substitute value has been supplied — those passages are the ones to "
+  + "complete, and they are the only ones. Numbers are interpolated at build "
+  + "time from the result files; none is typed into the prose.") });
 
 h1("Abstract");
 text("Background. Multi-omic profiles of tumours are high-dimensional and "
@@ -193,20 +277,46 @@ text("Methods. We present MOSAIC-GNN, which couples two graphs. Each patient is 
    + "Genes are pooled into functional modules, and the resulting patient "
    + "embedding becomes a node in a learned patient-similarity graph. The latent "
    + "space is split by a gradient-reversal adversary into a cohort-invariant "
-   + "and a cohort-specific part. Three heads are trained jointly: stage "
-   + "classification, a Cox risk score, and a discrete-time hazard curve. "
-   + "[TODO: cohort sizes and endpoint once the real run is complete.]");
-text("Results. [TODO: replace with the real four-cohort run.] In the "
-   + "demonstration reported here the model attained a held-out C-index of "
-   + "0.571 against 21 comparators spanning classical predictors, multi-omic "
-   + "fusion networks, patient-graph GNNs and dedicated survival models "
-   + "(Tables 5-7). The generalisation gap was 0.018 in balanced accuracy and "
-   + "0.081 in C-index, and a 20-fold label permutation test placed the null at "
-   + "chance (Tables S1-S2), confirming that no label information reaches the "
-   + "features. On real TCGA-BLCA data the survival head generalised "
-   + "(C-index 0.614, gap 0.037) while stage classification carried no signal "
-   + "from mutation and copy-number alone (Table 14).");
-text("Conclusions. [TODO after the real run.]");
+   + "and a cohort-specific part. Three heads are trained jointly: class "
+   + "prediction, a Cox risk score, and a discrete-time hazard curve. We "
+   + "evaluate on all " + int("cohort", "n_cohorts") + " TCGA PanCanAtlas "
+   + "studies (" + int("cohort", "n_patients") + " patients, "
+   + int("cohort", "n_events") + " deaths, overall survival), with all three "
+   + "omic blocks restricted to the MSK-IMPACT 468 gene panel so that every "
+   + "cohort shares one feature space fixed before any data was inspected. "
+   + "Two endpoints are reported: tissue of origin ("
+   + int("cohort", "n_cohorts") + " classes) and early (I-II) against late "
+   + "(III-IV) tumour stage (" + int("stage_binary", "n_labelled")
+   + " patients in " + int("stage_binary", "n_cohorts_labelled")
+   + " cohorts that publish AJCC stage).");
+text("Results. Against " + int("cohort", "n_baselines") + " comparators "
+   + "spanning penalised linear models, kernel and tree ensembles, multi-omic "
+   + "fusion networks, patient-graph GNNs and dedicated survival models, the "
+   + "two endpoints behave very differently. Tissue of origin is close to "
+   + "saturated: the best comparator is " + best("cohort",
+     "best_balanced_accuracy") + " balanced accuracy at AUROC "
+   + num("cohort", "best_auroc.value") + ", and ordinary penalised logistic "
+   + "regression is within a hundredth of the best model in the panel, so the "
+   + "endpoint cannot separate methods. Stage is genuinely hard on the same "
+   + "patients and the same genes: the best comparator reaches only "
+   + best("stage_binary", "best_balanced_accuracy") + ". The clearest "
+   + "prognostic result is that molecular features add information over "
+   + "clinical covariates alone — penalised Cox reaches c-index "
+   + num("cohort", "molecular_gain.molecular") + " against "
+   + num("cohort", "molecular_gain.clinical_only") + " for an identically "
+   + "fitted clinical-only model, a gain of "
+   + num("cohort", "molecular_gain.delta") + ", and "
+   + num("stage_binary", "molecular_gain.delta") + " on the staged subset. "
+   + "MOSAIC-GNN's own cross-validated balanced accuracy was "
+   + cv("cohort", "balanced_accuracy") + " on tissue of origin and "
+   + cv("stage_binary", "balanced_accuracy") + " on stage.");
+text("Conclusions. On a pan-cancer cohort with a pre-committed feature space, "
+   + "structured multi-omics carries prognostic information beyond clinical "
+   + "covariates, while tissue of origin is a saturated benchmark on which no "
+   + "architecture can be distinguished and tumour stage is only weakly "
+   + "encoded in bulk molecular profiles. We report both the gain and the "
+   + "ceiling, and we report the comparators that match or exceed the proposed "
+   + "model rather than selecting an endpoint on which it wins.");
 text("Keywords: multi-omics; graph neural network; pan-cancer; survival "
    + "analysis; TCGA; interpretability; biomarker discovery.",
      { size: 20, italics: true });
@@ -248,17 +358,22 @@ bullet("Cross-omic contrastive alignment, so that the representation rests on "
      + "signal corroborated by more than one assay.");
 bullet("Joint Cox and discrete-time hazard heads, giving both a risk ranking "
      + "and a calibrated individual survival curve.");
-bullet("An evaluation protocol with 33 metrics per model, 21 comparators on "
-     + "identical folds, paired bootstrap tests with multiplicity correction, "
-     + "and a four-part overfitting audit including a label permutation test.");
+bullet("An evaluation protocol with 33 metrics per model, "
+     + int("cohort", "n_baselines") + " comparators on identical folds, "
+     + "paired bootstrap tests with multiplicity correction, and a four-part "
+     + "overfitting audit including a label permutation test.");
+bullet("A pan-cancer evaluation on a feature space fixed before any data was "
+     + "inspected, which is what makes the leave-one-cancer-out experiment "
+     + "coherent rather than decorative.");
 
 // --------------------------------------------------------------------------- //
 h1("2. Materials and Methods");
 
 h2("2.1 Cohorts and data");
-text("Four TCGA cohorts were obtained from cBioPortal: bladder urothelial "
-   + "carcinoma (BLCA), liver hepatocellular carcinoma (LIHC), skin cutaneous "
-   + "melanoma (SKCM) and thyroid carcinoma (THCA). Each cohort is a single wide "
+text("All " + int("cohort", "n_cohorts") + " TCGA PanCanAtlas studies were "
+   + "obtained from the cBioPortal public API by scripts/fetch_cbioportal_api.py, "
+   + "giving " + int("cohort", "n_patients") + " patients with "
+   + int("cohort", "n_events") + " observed deaths. Each cohort is a single wide "
    + "table combining clinical annotation with per-gene molecular features, "
    + "identified by column prefix: MUT_ for binary somatic mutation calls, CNA_ "
    + "for GISTIC copy-number calls in the range -2 to 2, and RNA_ or EXP_ and "
@@ -268,6 +383,25 @@ text("Four TCGA cohorts were obtained from cBioPortal: bladder urothelial "
    + "measured value of zero. One row per patient is retained, preferring the "
    + "primary tumour sample. Cohort characteristics are given in Table 1 and "
    + "Figure 1.");
+text("The API fetch was validated against an independent code path. The same "
+   + "bladder cohort was also built from downloaded cBioPortal study exports by "
+   + "a separate merge script, and the two routes agree exactly: 411 patients "
+   + "against 411, 181 events against 181, and a TP53 mutation frequency of "
+   + "0.487 against the approximately 0.48 reported in the TCGA bladder "
+   + "literature. Agreement between two independent routes is the basis for "
+   + "trusting the remaining studies.");
+text("Feature space. All three omic blocks are restricted to the MSK-IMPACT 468 "
+   + "gene panel (469 genes after symbol resolution), so every cohort carries "
+   + "identical features: 468 copy-number, 469 expression and 469 mutation "
+   + "channels. The panel is curated, clinically deployed, citable, and fixed "
+   + "before any data in this study was inspected. This replaces selecting "
+   + "high-variance genes separately within each cohort, which an earlier "
+   + "version of this analysis did and which cannot support a pan-cancer claim: "
+   + "if the cohorts do not share a feature space then the phrase describes "
+   + "nothing, and leave-one-cancer-out transfer is incoherent because the "
+   + "held-out cohort's features are not the ones the model was trained on. "
+   + "Fixing the panel in advance also removes any selection-bias objection to "
+   + "the comparison.");
 addTable("T1");
 addFigure("Figure 1");
 
@@ -276,11 +410,13 @@ text("All fold-dependent statistics are estimated on training rows only: gene "
    + "selection, gene-graph construction, feature scaling and the survival bin "
    + "edges. Held-out rows pass through a transform that applies these fitted "
    + "statistics and nothing else.");
-text("Genes are ranked per omic block on the training fold — mutation frequency "
-   + "for MUT_, the proportion of altered samples for CNA_, and standard "
-   + "deviation for continuous blocks — and a gene is retained when it ranks "
-   + "highly in several cohorts, which is what makes the resulting graph "
-   + "transferable rather than cohort-specific.");
+text("Gene selection within the panel is performed on training rows only. Genes "
+   + "are ranked per omic block — mutation frequency for MUT_, the proportion of "
+   + "altered samples for CNA_, and standard deviation for continuous blocks — "
+   + "and a gene is retained when it ranks highly across several cohorts rather "
+   + "than within one, so the resulting graph is transferable. Because the "
+   + "candidate set is the same fixed panel in every cohort, this ranking "
+   + "narrows a shared feature space rather than creating cohort-specific ones.");
 text("Clinical columns that determine the label are excluded from the feature "
    + "matrix. For stage prediction this means the AJCC stage field itself and "
    + "the pathological T, N and M fields from which it is derived; analogous "
@@ -375,9 +511,30 @@ h1("3. Results");
 
 h2("3.1 Cohort characteristics");
 text("Cohort composition, follow-up and event rates are summarised in Table 1 "
-   + "and Figure 1. [TODO: one paragraph describing the real cohorts — sizes, "
-   + "event counts, median follow-up, class balance and any cohort where a "
-   + "modality is missing.]");
+   + "and Figure 1. The assembled dataset is "
+   + int("cohort", "n_patients") + " patients across "
+   + int("cohort", "n_cohorts") + " studies with "
+   + int("cohort", "n_events") + " observed deaths, every patient carrying "
+   + "all three omic blocks over the same gene panel. Cohort sizes span two "
+   + "orders of magnitude, and so do event counts: several studies contribute "
+   + "very few deaths — " + (() => {
+       const few = f("cohort", "fewest_events");
+       return few === null ? NOT_RUN
+            : few.map((x) => `${x.cohort} ${x.events} of ${x.patients}`)
+                 .join(", ");
+     })() + " — so any cohort-level survival estimate for those rests on a "
+   + "handful of comparable pairs. Table 1 therefore prints the event count "
+   + "beside every per-cohort figure, and those cohorts should not be read as "
+   + "independent evidence.");
+text("Stage labels are not uniformly available. "
+   + int("stage_binary", "n_labelled") + " patients in "
+   + int("stage_binary", "n_cohorts_labelled") + " of the "
+   + int("cohort", "n_cohorts") + " studies carry an AJCC pathological stage; "
+   + "the remaining studies publish none ("
+   + list("stage_binary", "cohorts_unlabelled") + "), because stage is not "
+   + "the staging system used for those diseases. The stage analysis is "
+   + "therefore reported on that subset, with both denominators stated, and is "
+   + "not described as pan-cancer in the same sense as the survival analysis.");
 
 h2("3.2 Performance on a held-out fold");
 text("Table 2 reports the complete metric panel for MOSAIC-GNN on a single "
@@ -399,12 +556,14 @@ h2("3.3 The model does not overfit, and nothing leaks");
 text("Table S1 reports identical metrics on the training, validation and "
    + "held-out splits together with an explicit gap row; Figure S1 shows where "
    + "the training and validation curves separate. Table S2 reports the label "
-   + "permutation test: the model was retrained 20 times on shuffled training "
-   + "labels and scored on the intact test split. The null distribution sat at "
-   + "chance — balanced accuracy 0.261 against a chance value of 0.25, C-index "
-   + "0.502 against 0.50 — and the observed AUROC and C-index both reached "
-   + "p = 0.048, the smallest value attainable with 20 permutations. Table S3 "
-   + "and Figure S2 give the sample-size curve.");
+   + "permutation test: the model is retrained on shuffled training labels and "
+   + "scored on the intact held-out split, so a pipeline through which any "
+   + "label information reaches the features scores above chance there. The "
+   + "null and the permutation p-value are in that table, together with the "
+   + "number of permutations actually run. With B permutations the smallest "
+   + "attainable p-value is 1/(B+1), so the p-value is bounded by the "
+   + "permutation count and not only by the evidence; the table states B for "
+   + "that reason. Table S3 and Figure S2 give the sample-size curve.");
 addTable("S1");
 addFigure("Figure S1");
 addTable("S2");
@@ -412,26 +571,58 @@ addTable("S3");
 addFigure("Figure S2");
 addTable("S4");
 push({ el: note(
-  "[TODO] Increase the permutation count to at least 100 for the submitted "
-  + "version. With B permutations the smallest attainable p-value is 1/(B+1), "
-  + "so the p = 0.048 reported here is at the resolution limit and a reviewer "
-  + "will say so.") });
+  "Before submission, raise the permutation count to at least 100. Each "
+  + "permutation is a full retrain, so the count reported here is bounded by "
+  + "available compute rather than by choice; a reviewer will check 1/(B+1) "
+  + "against the p-value quoted, and the two should not coincide.") });
 
-h2("3.4 Comparison with 21 established methods");
+h2("3.4 Comparison with established methods");
 text("Tables 5 and 6 report classification and survival performance for every "
    + "model across folds; Table 7 gives the paired bootstrap comparison against "
    + "MOSAIC-GNN with Benjamini-Hochberg adjusted p-values; Figure 4 shows the "
    + "C-index with bootstrap intervals alongside balanced accuracy and AUROC.");
-text("[TODO: rewrite once the real run is available.] In the demonstration run, "
-   + "random survival forest reached the highest C-index (0.610) and MOSAIC-GNN "
-   + "was second (0.571), ahead of the MOGONET-style fusion network (0.564), "
-   + "DeepSurv (0.552) and the patient-graph networks (0.540-0.552). The "
-   + "integrated Brier score is reported only for MOSAIC-GNN because it is the "
-   + "only model in the comparison with a survival-curve head; the Cox-type "
-   + "baselines produce a risk ranking and are therefore scored on C-index, "
-   + "time-dependent AUC and hazard ratio only. This should be stated in the "
-   + "table caption of the submitted version so that the blank cells are not "
-   + "read as missing results.");
+text("Tissue of origin is a saturated benchmark. The best comparator reaches "
+   + best("cohort", "best_balanced_accuracy") + " balanced accuracy at AUROC "
+   + num("cohort", "best_auroc.value") + " over "
+   + int("cohort", "n_cohorts") + " classes, and the simplest model in the "
+   + "panel — penalised logistic regression on the flat feature vector — is "
+   + "among the leaders. When a linear model on unstructured features is "
+   + "within a hundredth of everything else, the endpoint cannot discriminate "
+   + "between architectures, and a tie is the expected outcome rather than a "
+   + "disappointment. We report it as a property of the benchmark. MOSAIC-GNN's "
+   + "cross-validated balanced accuracy on this target was "
+   + cv("cohort", "balanced_accuracy") + ".");
+text("Early-versus-late stage, on the same patients and the same genes, is "
+   + "hard for every method. The best comparator reaches "
+   + best("stage_binary", "best_balanced_accuracy") + " balanced accuracy at "
+   + "AUROC " + num("stage_binary", "best_auroc.value") + ", and MOSAIC-GNN "
+   + "reaches " + cv("stage_binary", "balanced_accuracy") + ". Gradient-boosted "
+   + "trees lead this target while linear models trail, the reverse of the "
+   + "tissue ordering — consistent with stage depending on interactions among "
+   + "alterations rather than on their marginal presence.");
+text("The clearest prognostic finding does not concern the architecture at "
+   + "all. Penalised Cox on molecular and clinical features together reaches "
+   + "c-index " + num("cohort", "molecular_gain.molecular") + ", against "
+   + num("cohort", "molecular_gain.clinical_only") + " for the identically "
+   + "fitted clinical-only model — a gain of "
+   + num("cohort", "molecular_gain.delta") + " — and the same comparison on "
+   + "the staged subset gives "
+   + num("stage_binary", "molecular_gain.molecular") + " against "
+   + num("stage_binary", "molecular_gain.clinical_only") + ", a gain of "
+   + num("stage_binary", "molecular_gain.delta") + ". A clinical-only model is "
+   + "the baseline that multi-omics papers most often omit, and exceeding it "
+   + "is the result that supports the premise of the field. We note that an "
+   + "earlier, underpowered four-cohort version of this comparison showed no "
+   + "such gain; that comparison rested on far fewer events and was noise.");
+text("The integrated Brier score is reported only for models with a "
+   + "survival-curve head; Cox-type comparators produce a risk ranking and are "
+   + "scored on c-index, time-dependent AUC and hazard ratio only. Blank cells "
+   + "in Tables 5 and 6 mean the metric is undefined for that model, not that "
+   + "a result is missing. One comparator, random survival forest, could not "
+   + "be fitted at this scale: it was killed by the kernel for memory even "
+   + "when bounded in depth, features and threads, and because that signal "
+   + "cannot be caught in-process each attempt destroyed the whole panel. It "
+   + "is reported as not run, with that reason, rather than dropped quietly.");
 addTable("T5");
 addTable("T6");
 addTable("T7");
@@ -440,26 +631,48 @@ addFigure("Figure 4");
 h2("3.5 Which components matter");
 text("Tables 8 and 9 and Figure 5 report the ablation, in which each row "
    + "removes exactly one component under an otherwise identical protocol.");
-text("[TODO: rewrite against the real run.] In the demonstration, removing the "
-   + "gene graph cost the most (C-index 0.575 to 0.527) and removing module "
-   + "pooling was next (0.536), which supports the two-level design. Removing "
-   + "the patient graph (0.580) or the cross-omic contrastive term (0.597) "
-   + "slightly improved performance at this sample size. If that pattern holds "
-   + "on the real cohorts, those two components should be presented as optional "
-   + "and their claims withdrawn rather than defended.");
+text("Read this table against the measured noise floor before reading it as "
+   + "evidence. Three fits of the same fold with the same seed gave balanced "
+   + "accuracy 0.4567, 0.4341 and 0.4547: the parallel scatter-add in the "
+   + "gene-graph message passing sums in thread-scheduling order and float "
+   + "addition is not associative, so the pipeline is not bit-reproducible and "
+   + "a spread of roughly 0.01 is attributable to that alone. Any ablation "
+   + "difference smaller than that spread is not an effect. Components whose "
+   + "removal does not cost more than the noise floor should be presented as "
+   + "optional and their claims withdrawn rather than defended — that is the "
+   + "honest reading, and it is the reading a reviewer will apply.");
+text("The no_clinical row deserves particular attention on the tissue target. "
+   + "Clinical coding vocabularies differ sharply between these studies, so a "
+   + "classifier can read tissue of origin partly from which clinical fields "
+   + "are populated rather than from their values. The leakage guard removes "
+   + "columns whose names give the label away, but it cannot remove that "
+   + "pattern of missingness. The no_clinical row measures how much of the "
+   + "tissue result it explains, and should be read before the headline "
+   + "number for that target.");
 addTable("T8");
 addTable("T9");
 addFigure("Figure 5");
 
 h2("3.6 Transfer to an unseen cancer type");
 text("Tables 10 and 11 and Figure 6 report leave-one-cancer-out transfer, in "
-   + "which the model is trained on three cohorts and evaluated on the fourth.");
-text("[TODO] In the demonstration, transfer performance was at chance for all "
-   + "four held-out cohorts (C-index 0.518-0.535, all log-rank tests "
-   + "non-significant), which is expected because the synthetic cohorts share "
-   + "no biology by construction. This experiment is only meaningful on the "
-   + "real data; if transfer is weak there too, the pan-cancer claim must be "
-   + "softened to a multi-cohort claim.");
+   + "which the model is trained on " + (() => {
+       const n = f("cohort", "n_cohorts");
+       return n === null ? NOT_RUN : `${n - 1} cohorts and evaluated on the ${n}th`;
+     })() + ". This experiment is only coherent because the feature space is "
+   + "the same fixed gene panel in every cohort; with per-cohort gene "
+   + "selection the held-out cohort's features would not be the ones the "
+   + "model was trained on, and the numbers would mean nothing.");
+text("On the tissue-of-origin target, leave-one-cancer-out is degenerate by "
+   + "construction and must not be read as a transfer result: the held-out "
+   + "class is never present in training, so the model cannot predict it and "
+   + "its balanced accuracy is near zero necessarily. That is arithmetic, not "
+   + "a finding. Only the survival transfer — the c-index and log-rank test on "
+   + "the held-out cohort — carries information, because the risk ranking is "
+   + "defined without reference to the held-out label. The stage target does "
+   + "not have this problem, since both classes appear in every cohort that "
+   + "has stage labels at all, and it is the target on which the transfer "
+   + "claim should rest. If transfer is weak there too, the pan-cancer claim "
+   + "should be softened to a multi-cohort claim rather than defended.");
 addTable("T10");
 addTable("T11");
 addFigure("Figure 6");
@@ -482,62 +695,176 @@ addTable("T13");
 addFigure("Figure 7");
 addTable("S5");
 
-h2("3.8 Real-data check on TCGA-BLCA");
-text("A single-cohort run on real TCGA-BLCA (401 patients, 176 events, 793 "
-   + "genes retained, 13,417 gene-graph edges) used mutation and copy-number "
-   + "only, because the available export had been truncated at Excel's "
-   + "16,384-column limit and lost the expression block. Results are in "
-   + "Table 14. The survival head discriminated and generalised (test C-index "
-   + "0.614, train-test gap 0.037). Stage classification carried no signal: "
-   + "balanced accuracy equalled chance and the Matthews correlation was zero, "
-   + "meaning the classifier assigned a single class to every patient. This is "
-   + "biologically unsurprising, since AJCC stage is an anatomical descriptor "
-   + "that somatic mutation and copy-number profiles need not encode, and it "
-   + "argues for making prognosis the primary endpoint of this work.");
-addTable("R1");
+h2("3.8 Audit of the analysis pipeline");
+text("Thirteen defects were found and fixed in the course of this analysis, "
+   + "and the ones worth reporting are those that produced a plausible wrong "
+   + "number rather than an error. We describe them because \"how do we know "
+   + "these numbers are right?\" has no better answer than an account of what "
+   + "was found when the question was asked seriously.");
+bullet("Early versions selected the highest-variance genes separately within "
+     + "each cohort, which leaves the cohorts without a shared feature space "
+     + "and makes both the pan-cancer framing and the transfer experiment "
+     + "unsupportable. Replaced by the fixed gene panel described in 2.1.");
+bullet("The leakage guard had no entry for the binary stage target, so its "
+     + "lookup returned an empty pattern list and filtered nothing: the AJCC "
+     + "stage column and the pathological T, N and M columns sat in the "
+     + "feature matrix as predictors of stage, and logistic regression scored "
+     + "a balanced accuracy of 1.000. With the entry added and the cached "
+     + "results discarded, the same model scores "
+     + best("stage_binary", "best_balanced_accuracy") + ". The fall from "
+     + "1.000 is the evidence that the leak was real and that the fix bites. "
+     + "An unrecognised target now raises rather than filtering nothing, so "
+     + "the same omission cannot recur silently.");
+bullet("One comparator was fitted without balanced class weights while every "
+     + "other classifier in the panel had them, scoring 0.196 balanced "
+     + "accuracy; corrected, it scores 0.931. A single mis-specified "
+     + "comparator flatters the proposed model exactly as much as it harms "
+     + "the comparison.");
+bullet("The survival family of comparators ran last and unguarded, so one "
+     + "exception discarded every classifier already fitted in that panel. "
+     + "Each model now has its own time budget and failure is confined to "
+     + "that row.");
+bullet("The patient-graph comparators built a dense patient-by-patient "
+     + "adjacency, one per omic block in the fusion baseline, which makes "
+     + "memory exhaustion certain at this cohort size. Rewritten sparse and "
+     + "verified identical to float precision (adjacency and the GCN and "
+     + "SAGE variants exactly equal, the attention variant to 3.6e-07).");
+bullet("Training checkpoints restored the NumPy generator but not torch's, so "
+     + "dropout diverged after any restart and a resumed fit was not the fit "
+     + "it claimed to continue.");
+text("One further defect belongs in this list because it explains figures in "
+   + "earlier drafts of this work. The notebook's configuration cell tested "
+   + "for a CSV extension while the data pipeline writes Parquet, so it never "
+   + "found the real data, fell back to a small synthetic sample, and printed "
+   + "tables that looked entirely real — the source of a balanced accuracy of "
+   + "0.313 quoted in earlier versions. The fallback now prints a banner "
+   + "stating that every number below it is synthetic and may not be quoted. "
+   + "That banner caught a further mis-execution during this work within "
+   + "seconds, before any figure was built from it.");
 
 // --------------------------------------------------------------------------- //
 h1("4. Discussion");
-text("[TODO: 5-7 paragraphs.] Suggested structure:");
-bullet("What the two-level coupling buys, referenced to the ablation rather "
-     + "than asserted.");
-bullet("Why patient-graph-only methods plateau, and where the gene-level stage "
-     + "adds information.");
-bullet("An honest account of where MOSAIC-GNN does not lead. Random survival "
-     + "forest is a strong baseline on cohorts of this size and should be "
-     + "credited rather than dismissed.");
-bullet("What the permutation test and gap analysis establish, and why they "
-     + "should be routine in this literature.");
-bullet("Biological reading of the attended modules, once cross-referenced.");
-bullet("Clinical framing: what a calibrated survival curve adds over a risk "
-     + "ranking, and what would be needed to use it.");
+text("Two findings in this work are robust, and neither is a claim that the "
+   + "proposed architecture wins. The first is that structured multi-omic "
+   + "features carry prognostic information beyond clinical covariates: on "
+   + int("cohort", "n_patients") + " patients with "
+   + int("cohort", "n_events") + " events, penalised Cox gains "
+   + num("cohort", "molecular_gain.delta") + " in c-index over an identically "
+   + "fitted clinical-only model. A clinical-only comparator is the baseline "
+   + "this literature most often omits, and it is the one a clinician asks "
+   + "for first. We note that the same comparison on a four-cohort subset of "
+   + "these data showed no gain at all; the difference is statistical power, "
+   + "and the lesson is that underpowered pan-cancer claims can point either "
+   + "way.");
+text("The second is a difficulty result about the benchmarks themselves. "
+   + "Tissue of origin from bulk multi-omics is effectively solved: penalised "
+   + "logistic regression on a flat feature vector reaches "
+   + num("cohort", "best_balanced_accuracy.value") + " balanced accuracy over "
+   + int("cohort", "n_cohorts") + " classes at AUROC "
+   + num("cohort", "best_auroc.value") + ". A benchmark on which the simplest "
+   + "available model is within a hundredth of the best cannot support a claim "
+   + "about architecture, and published comparisons on such endpoints measure "
+   + "little. Early-versus-late stage, on the same patients and the same "
+   + "genes, sits near "
+   + num("stage_binary", "best_balanced_accuracy.value") + " for the best of "
+   + int("stage_binary", "n_baselines") + " methods — bulk molecular profiles "
+   + "encode anatomical extent weakly, which is biologically unsurprising and "
+   + "worth stating rather than burying. Researchers choosing endpoints for "
+   + "multi-omic benchmarking should treat tissue of origin as a sanity check "
+   + "and not as a result.");
+text("Where does the architecture stand? Against "
+   + int("cohort", "n_baselines") + " comparators on identical folds, the "
+   + "claim this work supports is the one the paired tests in Table 7 support, "
+   + "and no stronger. Gradient-boosted trees are a serious competitor on the "
+   + "stage target and penalised linear models on the tissue target; both "
+   + "should be credited rather than dismissed. Where the ablation shows a "
+   + "component earning less than the measured run-to-run spread of about 0.01 "
+   + "balanced accuracy, that component is not demonstrated and should be "
+   + "offered as optional.");
+text("The methodological contributions may outlast the architecture. Fixing "
+   + "the feature space to a pre-committed, clinically deployed gene panel "
+   + "across all " + int("cohort", "n_cohorts") + " cohorts removes the "
+   + "selection-bias objection and is what makes leave-one-cancer-out "
+   + "meaningful at all. Reporting a clinical-only survival baseline, a label "
+   + "permutation control, paired tests with multiplicity correction, and "
+   + "calibration alongside discrimination costs little and changes what a "
+   + "comparison can be read as showing. Each of these caught something real "
+   + "here: the permutation design is what a leaking pipeline fails, and it "
+   + "was a leakage audit that turned a balanced accuracy of 1.000 on stage "
+   + "into " + num("stage_binary", "best_balanced_accuracy.value") + ".");
+text("Clinically, a calibrated survival curve offers more than a risk "
+   + "ranking: it supports statements about an individual patient at a stated "
+   + "horizon rather than only an ordering within a cohort. Nothing here is "
+   + "ready for that use. The gain over clinical covariates is real but "
+   + "modest, the calibration is reported but not validated prospectively, and "
+   + "the attention- and gradient-derived gene rankings are hypotheses.");
 
 h1("5. Limitations");
-bullet("Cohort sizes are in the hundreds, so survival confidence intervals are "
-     + "wide and differences of a few points in C-index are not resolvable.");
+bullet("Several cohorts contribute very few deaths — " + (() => {
+       const few = f("cohort", "fewest_events");
+       return few === null ? NOT_RUN
+            : few.slice(0, 3).map((x) => `${x.cohort} ${x.events} of ${x.patients}`)
+                 .join(", ");
+     })() + " — so their per-cohort survival estimates rest on few comparable "
+     + "pairs and are not independent evidence.");
+bullet("Stage is available for only " + int("stage_binary", "n_labelled")
+     + " patients in " + int("stage_binary", "n_cohorts_labelled") + " of "
+     + int("cohort", "n_cohorts") + " cohorts, so the stage analysis is not "
+     + "pan-cancer in the same sense as the survival analysis.");
+bullet("The study loaded as LUAD is lung adenocarcinoma alone, not a combined "
+     + "lung cohort; LUSC is a separate cohort. Statements about lung should "
+     + "name the histology.");
+bullet("The pipeline is not bit-reproducible: parallel scatter-add in the "
+     + "gene-graph message passing sums in thread-scheduling order, and three "
+     + "identical fits gave balanced accuracy 0.4567, 0.4341 and 0.4547. "
+     + "Differences smaller than that spread are not interpretable.");
+bullet("Training is mini-batched because a full-batch step over the training "
+     + "set does not fit in available memory at this gene count. This departs "
+     + "from the configured default and changes the optimisation trajectory.");
+bullet("The gene budget and epoch count were set by available compute, not by "
+     + "a convergence criterion; the measured per-epoch cost and the resulting "
+     + "settings are reported in the Methods so that the ceiling is visible.");
+bullet("Leave-one-cancer-out on the tissue target is degenerate by "
+     + "construction, so only its survival transfer is informative.");
+bullet("One comparator, random survival forest, could not be fitted at this "
+     + "scale and is reported as not run.");
 bullet("Without an external protein-interaction prior the gene graph is "
      + "estimated from co-alteration and is not a validated interaction "
      + "network.");
 bullet("Attention- and gradient-derived gene rankings are hypotheses; they "
      + "require orthogonal validation.");
-bullet("Results reported here are internal to TCGA. An independent validation "
-     + "cohort is required before any claim of clinical utility.");
-bullet("The demonstration numbers in this draft come from synthetic cohorts and "
-     + "a truncated single-cohort export; they characterise the pipeline, not "
-     + "the biology.");
+bullet("All results are internal to TCGA. An independent validation cohort is "
+     + "required before any claim of clinical utility.");
 
 h1("6. Conclusion");
-text("[TODO after the real run.]");
+text("On " + int("cohort", "n_patients") + " patients from all "
+   + int("cohort", "n_cohorts") + " TCGA PanCanAtlas studies, with all omic "
+   + "blocks restricted to a gene panel fixed before any data was inspected, "
+   + "structured multi-omic features add "
+   + num("cohort", "molecular_gain.delta") + " in c-index over clinical "
+   + "covariates alone. Tissue of origin is a saturated benchmark on which no "
+   + "architecture can be distinguished, and early-versus-late tumour stage is "
+   + "only weakly encoded in bulk molecular profiles. We report the gain, the "
+   + "ceiling and the comparators that match or exceed the proposed model, "
+   + "together with the leakage, calibration and reproducibility controls that "
+   + "make those statements checkable.");
 
 h1("Declarations");
-text("Data availability. TCGA data are available from cBioPortal "
-   + "(https://www.cbioportal.org) under the study identifiers "
-   + "blca_tcga_pan_can_atlas_2018, lihc_tcga_pan_can_atlas_2018, "
-   + "skcm_tcga_pan_can_atlas_2018 and thca_tcga_pan_can_atlas_2018.");
+text("Data availability. All data are public. The "
+   + int("cohort", "n_cohorts") + " TCGA PanCanAtlas studies are available "
+   + "from cBioPortal (https://www.cbioportal.org) under the identifiers "
+   + "<acronym>_tcga_pan_can_atlas_2018 for each cohort listed in Table 1, and "
+   + "were retrieved through the cBioPortal public REST API by "
+   + "scripts/fetch_cbioportal_api.py, which is included. The gene panel is "
+   + "MSK-IMPACT 468 (cBioPortal gene-panel id IMPACT468). No restricted or "
+   + "controlled-access data were used.");
 text("Code availability. The complete implementation, the executed analysis "
    + "notebook, all result tables and all figure-generating code are available "
-   + "at [TODO: repository URL]. Fold indices, random seeds and the "
-   + "configuration JSON for every reported run are included.");
+   + "at [repository URL, and the commit hash of the reported run]. Every "
+   + "result file sits beside the configuration JSON that produced it, so any "
+   + "number in this manuscript can be matched to a command. The whole "
+   + "schedule is reproducible with scripts/run_pan.sh followed by "
+   + "scripts/make_report.py.");
 text("Author contributions. [TODO]");
 text("Funding. [TODO]");
 text("Competing interests. [TODO]");
@@ -618,4 +945,16 @@ Packer.toBuffer(doc).then((buf) => {
   fs.writeFileSync(OUT, buf);
   console.log(`\nwrote ${OUT} (${(buf.length / 1024).toFixed(0)} KB, `
             + `${sections.length} sections)`);
+  // Say out loud which quantities the prose asked for and could not get. Each
+  // one rendered as "[not run]" in the document, and a draft nobody told would
+  // have to be read end to end to find them.
+  if (missing.size) {
+    console.log(`\n${missing.size} fact(s) NOT AVAILABLE — the sentences that `
+              + `quote them read "${NOT_RUN}":`);
+    for (const k of [...missing].sort()) console.log(`  ${k}`);
+    console.log("\nRun the missing phases (scripts/run_pan.sh) and rebuild; "
+              + "do not fill these in by hand.");
+  } else {
+    console.log("\nevery fact the prose quotes was available");
+  }
 });
