@@ -578,5 +578,63 @@
         "n": 523
       }
     }
+  },
+  "KICH": {
+    "accuracy": 0.8923076923076924,
+    "balanced_accuracy": 0.8923076923076924,
+    "f1_macro": 0.23577235772357724,
+    "f1_weighted": 0.943089430894309,
+    "precision_macro": 0.25,
+    "recall_macro": 0.2230769230769231,
+    "specificity_macro": NaN,
+    "npv_macro": 0.0,
+    "kappa": 0.0,
+    "kappa_quadratic": 0.0,
+    "mcc": 0.0,
+    "log_loss": 0.8473310470581055,
+    "brier": 0.39510565996170044,
+    "top2_accuracy": 1.0,
+    "ece": 0.4395660978097182,
+    "c_index": 0.8834080717488789,
+    "c_index_ci": [
+      0.7229146049624845,
+      0.9829254675237936
+    ],
+    "auc@12m": 1.0,
+    "auc@36m": 0.8936170212765958,
+    "auc@60m": 0.8952702702702703,
+    "logrank_chi2": 5.772876669985989,
+    "logrank_p": 0.01627537169536979,
+    "mean_predictive_entropy": 1.9592058658599854,
+    "per_class": {
+      "10": {
+        "support": 65,
+        "precision": 1.0,
+        "recall": 0.8923076923076924,
+        "f1": 0.9430894308943091,
+        "specificity": NaN,
+        "mean_predicted_prob": 0.4363856911659241
+      }
+    },
+    "per_cohort": {
+      "KICH": {
+        "accuracy": 0.8923076923076924,
+        "balanced_accuracy": 0.8923076923076924,
+        "f1_macro": 0.23577235772357724,
+        "f1_weighted": 0.943089430894309,
+        "precision_macro": 0.25,
+        "recall_macro": 0.2230769230769231,
+        "specificity_macro": NaN,
+        "npv_macro": 0.0,
+        "kappa": 0.0,
+        "kappa_quadratic": 0.0,
+        "mcc": 0.0,
+        "log_loss": 0.8473310470581055,
+        "brier": 0.39510565996170044,
+        "top2_accuracy": 1.0,
+        "c_index": 0.8834080717488789,
+        "n": 65
+      }
+    }
   }
 }
