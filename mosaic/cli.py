@@ -78,7 +78,27 @@ ABLATIONS: Dict[str, Dict[str, bool]] = {
 
 def cmd_ablate(cfg: Config) -> None:
     table = {}
-    for name, overrides in ABLATIONS.items():
+    path = os.path.join(cfg.train.out_dir, f"{cfg.tag}_ablation.json")
+
+    # Which variants, and in what order. At pan-cancer scale one fold costs
+    # about half an hour, so the full eight-variant table is a multi-hour
+    # commitment and a run that is cut short part way through must still
+    # leave a usable table. MOSAIC_ABLATIONS selects and orders the variants;
+    # "full" is always first because every other row is read against it.
+    want = [s.strip() for s in os.environ.get("MOSAIC_ABLATIONS", "").split(",")
+            if s.strip()]
+    if want:
+        unknown = [w for w in want if w not in ABLATIONS]
+        if unknown:
+            raise SystemExit(f"unknown ablation(s): {', '.join(unknown)}. "
+                             f"Choose from: {', '.join(ABLATIONS)}")
+        order = ["full"] + [w for w in want if w != "full"]
+    else:
+        order = list(ABLATIONS)
+
+    print(f"ablation plan: {' -> '.join(order)}")
+    for name in order:
+        overrides = ABLATIONS[name]
         model_cfg = type(cfg.model)(**{**cfg.model.__dict__, **overrides})
         # Ablations are cheaper: one repeat is enough for the table.
         train_cfg = type(cfg.train)(**{**cfg.train.__dict__, "n_repeats": 1})
@@ -88,7 +108,13 @@ def cmd_ablate(cfg: Config) -> None:
         exp = Experiment(sub)
         exp.prepare()
         table[name] = exp.run_cv()["summary"]
-    path = os.path.join(cfg.train.out_dir, f"{cfg.tag}_ablation.json")
+        # Written after every variant, not once at the end. The previous
+        # version held the whole table in memory until the last variant
+        # finished, so an interrupted run produced no file at all and hours
+        # of completed variants were discarded.
+        with open(path, "w") as fh:
+            json.dump(table, fh, indent=2, default=float)
+        print(f"  [{len(table)}/{len(order)}] wrote {path}")
     with open(path, "w") as fh:
         json.dump(table, fh, indent=2, default=float)
     print(f"\nwrote {path}")
