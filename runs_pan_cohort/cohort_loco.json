@@ -868,5 +868,63 @@
         "n": 514
       }
     }
+  },
+  "LIHC": {
+    "accuracy": 0.8978494623655914,
+    "balanced_accuracy": 0.8978494623655914,
+    "f1_macro": 0.31539187913125594,
+    "f1_weighted": 0.9461756373937678,
+    "precision_macro": 0.3333333333333333,
+    "recall_macro": 0.2992831541218638,
+    "specificity_macro": NaN,
+    "npv_macro": 0.0,
+    "kappa": 0.0,
+    "kappa_quadratic": 0.0,
+    "mcc": 0.0,
+    "log_loss": 0.9490025043487549,
+    "brier": 0.43727245926856995,
+    "top2_accuracy": 1.0,
+    "ece": 0.4944144662830138,
+    "c_index": 0.5972613628152323,
+    "c_index_ci": [
+      0.5458243731556642,
+      0.6485602930903448
+    ],
+    "auc@12m": 0.6454399357171554,
+    "auc@36m": 0.6166387959866221,
+    "auc@60m": 0.6496674057649667,
+    "logrank_chi2": 10.149757838574892,
+    "logrank_p": 0.0014432019940005397,
+    "mean_predictive_entropy": 2.0721116065979004,
+    "per_class": {
+      "15": {
+        "support": 372,
+        "precision": 1.0,
+        "recall": 0.8978494623655914,
+        "f1": 0.9461756373937676,
+        "specificity": NaN,
+        "mean_predicted_prob": 0.3989512622356415
+      }
+    },
+    "per_cohort": {
+      "LIHC": {
+        "accuracy": 0.8978494623655914,
+        "balanced_accuracy": 0.8978494623655914,
+        "f1_macro": 0.31539187913125594,
+        "f1_weighted": 0.9461756373937678,
+        "precision_macro": 0.3333333333333333,
+        "recall_macro": 0.2992831541218638,
+        "specificity_macro": NaN,
+        "npv_macro": 0.0,
+        "kappa": 0.0,
+        "kappa_quadratic": 0.0,
+        "mcc": 0.0,
+        "log_loss": 0.9490025043487549,
+        "brier": 0.43727245926856995,
+        "top2_accuracy": 1.0,
+        "c_index": 0.5972613628152323,
+        "n": 372
+      }
+    }
   }
 }
