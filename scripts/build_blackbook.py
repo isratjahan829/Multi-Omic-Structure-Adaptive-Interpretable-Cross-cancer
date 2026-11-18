@@ -354,12 +354,26 @@ def main() -> None:
           "molecular features add prognostic information beyond clinical "
           "covariates alone.",
 
+        "Component ablation separates the architecture cleanly. Each of the "
+        "three graph components — the gene graph, the functional-module "
+        "pooling and the learned patient graph — costs more than the "
+        "pipeline's ±0.01 noise floor when removed, while the two auxiliary "
+        "objectives, disentanglement and cross-omic contrast, fall inside "
+        "it. The largest effect in the study, however, is the clinical "
+        "pathway: removing it costs 0.459 balanced accuracy, so tissue of "
+        "origin is carried principally by clinical covariates and the "
+        "molecular channels sustain performance only slightly above chance "
+        "on their own.",
+
         "We therefore report a rigorous negative-to-mixed result rather than "
-        "a performance claim: the proposed coupling of gene-level and "
-        "patient-level structure is not what produces the gain, the "
-        "molecular data is, and the comparators that match or exceed the "
-        "proposed model are reported rather than an endpoint being selected "
-        "on which it wins.",
+        "a performance claim. Molecular data contributes a measurable, "
+        "independently replicated increment over clinical covariates; "
+        "clinical covariates contribute the larger share; the proposed "
+        "coupling of gene-level and patient-level structure earns its place "
+        "within the architecture without making that architecture "
+        "competitive on classification; and the comparators that match or "
+        "exceed it are reported rather than an endpoint being selected on "
+        "which it wins.",
     ]
 
     sections["Results"] = [
@@ -594,6 +608,46 @@ def main() -> None:
         abl_paras.append(
             "Measured against the full model's balanced accuracy of "
             f"{fb:.4f}: " + "; ".join(lines) + ".")
+        if "no_clinical" in abl:
+            nc = abl["no_clinical"]
+            dn = nc["balanced_accuracy"]["mean"] - fb
+            abl_paras.append(
+                f"The `no_clinical` row is the largest effect in this study "
+                f"and reframes how the tissue-of-origin result should be "
+                f"read. Removing the clinical pathway takes balanced "
+                f"accuracy from {fb:.4f} to "
+                f"{nc['balanced_accuracy']['mean']:.4f}, a change of "
+                f"{dn:+.4f}, with a fold standard deviation of "
+                f"{nc['balanced_accuracy']['std']:.4f}. That is roughly "
+                f"forty-six times the noise floor and is not a question of "
+                f"fold variation. C-index falls by "
+                f"{nc['c_index']['mean'] - abl['full']['c_index']['mean']:+.4f}.")
+            abl_paras.append(
+                "The tissue-of-origin task is therefore carried mainly by "
+                "clinical covariates rather than by the molecular data. "
+                "Stated plainly this is not surprising: sex alone separates "
+                "PRAD and TGCT from OV, UCEC, UCS and CESC, and the age and "
+                "stage distributions differ sharply between studies. It is "
+                "not leakage — the guard described in Section 3.2 removes "
+                "the direct identifiers CANCER_TYPE, SUBTYPE, ONCOTREE, "
+                "ICD_O and ICD_10 — it is legitimate signal that happens to "
+                "do most of the work, and it helps explain why ordinary "
+                "logistic regression on the same features reaches 0.942. "
+                "Chance on 32 classes is 0.031, so what the molecular "
+                "channels sustain on their own is above chance and well "
+                "below useful.")
+            abl_paras.append(
+                "This does not contradict the survival finding in Section "
+                "4.4, and the distinction is the one to hold on to under "
+                "questioning. MOSAIC-GNN exceeds an identically fitted "
+                "clinical-only Cox model by 0.040 C-index on this endpoint "
+                "and by 0.051 on stage, and the baseline panel reproduces "
+                "the same gap independently (penalised Cox 0.779 against "
+                "clinical-only 0.734). Molecular features add real "
+                "prognostic information on top of clinical covariates; what "
+                "this ablation adds is the magnitude of the base those "
+                "features are added to. Both halves belong in any summary of "
+                "this work.")
         if "no_disentangle" in abl:
             dd = (abl["no_disentangle"]["balanced_accuracy"]["mean"] - fb)
             abl_paras.append(
@@ -696,6 +750,16 @@ def main() -> None:
           "molecular-over-clinical prognostic gain and the audited "
           "comparison protocol, not a performance claim for the proposed "
           "model.",
+
+        "Tissue of origin depends principally on clinical covariates, not "
+        "on the molecular data. Removing the clinical pathway costs 0.459 "
+        "balanced accuracy, against 0.031 for chance on 32 classes. The "
+        "molecular channels alone sustain performance barely above chance "
+        "on this endpoint. The prognostic increment molecular features add "
+        "over clinical covariates is real and replicated across both "
+        "endpoints, but it is an increment on a base that the clinical "
+        "variables largely supply, and the earlier draft did not quantify "
+        "that base anywhere.",
 
         f"The {n_coh}-class head is poorly calibrated, with an expected "
         f"calibration error of {ece:.3f} against 0.035 on the binary head. "
