@@ -199,6 +199,7 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--cohort-runs", default="runs_pan_cohort")
     ap.add_argument("--stage-runs", default="runs_pan_stage")
+    ap.add_argument("--figures", default="figures")
     args = ap.parse_args()
 
     shutil.copyfile(args.src, args.out)
@@ -770,6 +771,46 @@ def main() -> None:
 
     for heading, paras in sections.items():
         print(f"  prose [{heading}]: {replace_section(doc, heading, paras)}")
+
+    # ---- figures --------------------------------------------------------- #
+    # The template's images 4..12 are Figures 4.1 through 4.9 in document
+    # order. Images 1..3 are the title-page mark and the two methodology
+    # diagrams, which the results do not touch.
+    #
+    # Two of these must be replaced even though their phase did not run.
+    # Leaving the originals would display figures drawn from the synthetic
+    # demonstration inside a chapter that states every number is real -- the
+    # single worst failure available here, because it is invisible to a
+    # reader and fatal if spotted by an examiner.
+    fig_map = {
+        "image4.png": f"{args.figures}/fig1_cohorts.png",
+        "image5.png": f"{args.figures}/fig2_risk.png",
+        "image6.png": f"{args.figures}/fig3_classification.png",
+        "image7.png": f"{args.figures}/figS1_learning_curves.png",
+        "image8.png": f"{args.figures}/_notrun_samplesize.png",
+        "image9.png": f"{args.figures}/fig4_comparison.png",
+        "image10.png": f"{args.figures}/fig5_ablation.png",
+        "image11.png": f"{args.figures}/_notrun_loco.png",
+        "image12.png": f"{args.figures}/fig7_interpretation.png",
+    }
+    swapped, absent = 0, []
+    for part in doc.part.package.iter_parts():
+        base = str(part.partname).rsplit("/", 1)[-1]
+        src = fig_map.get(base)
+        if not src:
+            continue
+        if not os.path.isfile(src):
+            absent.append(f"{base}<-{src}")
+            continue
+        with open(src, "rb") as fh:
+            part._blob = fh.read()
+        swapped += 1
+        print(f"  figure {base} <- {src}")
+    print(f"  {swapped} figures replaced")
+    if absent:
+        print(f"  !! not replaced (source missing): {', '.join(absent)}")
+        print("     those still show the OLD synthetic figures -- fix before "
+              "submission")
 
     doc.save(args.out)
     print(f"wrote {args.out}")
