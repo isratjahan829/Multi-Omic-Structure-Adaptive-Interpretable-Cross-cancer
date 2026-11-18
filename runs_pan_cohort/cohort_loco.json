@@ -404,5 +404,63 @@
         "n": 48
       }
     }
+  },
+  "ESCA": {
+    "accuracy": 0.989010989010989,
+    "balanced_accuracy": 0.989010989010989,
+    "f1_macro": 0.3314917127071823,
+    "f1_weighted": 0.994475138121547,
+    "precision_macro": 0.3333333333333333,
+    "recall_macro": 0.32967032967032966,
+    "specificity_macro": NaN,
+    "npv_macro": 0.0,
+    "kappa": 0.0,
+    "kappa_quadratic": 0.0,
+    "mcc": 0.0,
+    "log_loss": 0.7208220362663269,
+    "brier": 0.3022524118423462,
+    "top2_accuracy": 1.0,
+    "ece": 0.49485048586195646,
+    "c_index": 0.6011319229214391,
+    "c_index_ci": [
+      0.5314045780404064,
+      0.669831979497042
+    ],
+    "auc@12m": 0.603463787674314,
+    "auc@36m": 0.6323529411764706,
+    "auc@60m": 0.7533333333333333,
+    "logrank_chi2": 6.388030090305386,
+    "logrank_p": 0.011489246160790592,
+    "mean_predictive_entropy": 1.9418237209320068,
+    "per_class": {
+      "7": {
+        "support": 182,
+        "precision": 1.0,
+        "recall": 0.989010989010989,
+        "f1": 0.994475138121547,
+        "specificity": NaN,
+        "mean_predicted_prob": 0.49391812086105347
+      }
+    },
+    "per_cohort": {
+      "ESCA": {
+        "accuracy": 0.989010989010989,
+        "balanced_accuracy": 0.989010989010989,
+        "f1_macro": 0.3314917127071823,
+        "f1_weighted": 0.994475138121547,
+        "precision_macro": 0.3333333333333333,
+        "recall_macro": 0.32967032967032966,
+        "specificity_macro": NaN,
+        "npv_macro": 0.0,
+        "kappa": 0.0,
+        "kappa_quadratic": 0.0,
+        "mcc": 0.0,
+        "log_loss": 0.7208220362663269,
+        "brier": 0.3022524118423462,
+        "top2_accuracy": 1.0,
+        "c_index": 0.6011319229214391,
+        "n": 182
+      }
+    }
   }
 }
