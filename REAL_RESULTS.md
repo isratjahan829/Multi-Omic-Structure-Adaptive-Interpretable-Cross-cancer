@@ -585,7 +585,22 @@ _Cross-validation did not complete; no summary to report._
 
 Models retrained on labels shuffled within the training and validation folds only; the held-out labels are left intact. A pipeline that leaks scores above chance here.
 
-_Not available: the run that produces this table did not complete._
+|                   |   observed |   null_mean |   null_sd |   null_max |   n_permutations |   p_value |
+|:------------------|-----------:|------------:|----------:|-----------:|-----------------:|----------:|
+| balanced_accuracy |     0.5937 |      0.0164 |    0.0046 |     0.0194 |                4 |       0.2 |
+| auroc             |     0.9693 |      0.4869 |    0.0447 |     0.5474 |                4 |       0.2 |
+| c_index           |     0.7348 |      0.5055 |    0.0441 |     0.5594 |                4 |       0.2 |
+
+<details><summary>Per-permutation null</summary>
+
+|   permutation |   balanced_accuracy |   auroc |   c_index |
+|--------------:|--------------------:|--------:|----------:|
+|             1 |              0.0194 |  0.5474 |    0.5594 |
+|             2 |              0.0175 |  0.4759 |    0.4517 |
+|             3 |              0.0096 |  0.44   |    0.5012 |
+|             4 |              0.0191 |  0.4842 |    0.5096 |
+
+</details>
 
 ### Baseline comparison
 
