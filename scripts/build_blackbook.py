@@ -276,7 +276,20 @@ def main() -> None:
                         "auprc", "ece", "c_index") if k in s}
         put(7, pd.DataFrame(rows).T, "Variant", 4, "4.12 ablation")
     if loco:
-        print("  LOCO data present")
+        # Table 4.15: survival transfer only, with the patient and event
+        # counts beside every C-index. The classification table is left
+        # alone deliberately -- see the prose for why those numbers are not
+        # reported.
+        rows = {}
+        for name, r in loco.items():
+            row = {"c_index": r.get("c_index"),
+                   "logrank_p": r.get("logrank_p")}
+            if t1 is not None and name in t1.index:
+                row["patients"] = int(t1.at[name, "patients"])
+                row["events"] = int(t1.at[name, "events"])
+            rows[name] = row
+        put(9, pd.DataFrame(rows).T, "Held-out cohort", 4,
+            "4.15 LOCO survival transfer")
     else:
         print(f"  T9/T10 (LOCO): no cohort_loco.json — left as template")
 
@@ -726,9 +739,56 @@ def main() -> None:
     sections["4.5 Ablation Study"] = abl_paras
 
     if loco:
-        loco_paras = ["Tables 4.14 and 4.15 report leave-one-cancer-out "
-                      "transfer, in which the model is trained on all but "
-                      "one study and evaluated on the held-out study."]
+        done = list(loco)
+        rows = []
+        for name, r in loco.items():
+            row = {"c_index": r.get("c_index"),
+                   "logrank_p": r.get("logrank_p")}
+            if t1 is not None and name in t1.index:
+                row["patients"] = int(t1.at[name, "patients"])
+                row["events"] = int(t1.at[name, "events"])
+            rows.append((name, row))
+        ldf = pd.DataFrame(dict(rows)).T
+        sig = sum(1 for _, r in rows
+                  if r.get("logrank_p") is not None and r["logrank_p"] < 0.05)
+        cis = [r["c_index"] for _, r in rows if r.get("c_index") is not None]
+        loco_paras = [
+            f"Tables 4.14 and 4.15 report leave-one-cancer-out transfer, in "
+            f"which the model is trained on every study but one and "
+            f"evaluated on the held-out study. {len(done)} of {n_coh} "
+            f"cohorts had completed when this report was generated; the "
+            f"remainder are marked as not run and no value is imputed for "
+            f"them.",
+
+            "**Only the survival column is reported.** With a single class "
+            "in the held-out set, balanced accuracy reduces to the recall of "
+            "that one class — scikit-learn discards the predicted-but-absent "
+            "classes as undefined — and Matthews correlation is zero by "
+            "construction. One completed cohort returns a balanced accuracy "
+            "of exactly 1.000 for a class the model never trained on, which "
+            "shows what that column measures: the structure of the test set, "
+            "not transfer. Those figures are therefore omitted from the "
+            "discussion rather than reported and explained away.",
+
+            f"Across the {len(cis)} completed cohorts the transfer C-index "
+            f"ranges from {min(cis):.3f} to {max(cis):.3f}, and {sig} of "
+            f"{len(done)} reach a log-rank p below 0.05 on the held-out "
+            f"cohort. The model therefore stratifies risk in a cancer type "
+            f"it has never seen, which is the result that distinguishes a "
+            f"pan-cancer representation from a cohort detector. It does so "
+            f"unevenly, and the spread is reported rather than averaged "
+            f"away.",
+
+            "Every C-index in Table 4.15 is printed beside the patient and "
+            "event counts it rests on, because several cohorts in this "
+            "dataset contribute very few deaths — TGCT 4 of 149, PCPG 5 of "
+            "178, DLBC and KICH 9 each. A concordance index computed over a "
+            "handful of comparable pairs is not comparable with one computed "
+            "over hundreds, and presenting 32 numbers in a single column "
+            "would invite exactly that mistake. CHOL illustrates it among "
+            "the completed cohorts: C-index 0.652 on 36 patients, with a "
+            "log-rank p of 0.146 that does not reach significance.",
+        ]
     else:
         loco_paras = [
             "Leave-one-cancer-out transfer did not complete within the "
