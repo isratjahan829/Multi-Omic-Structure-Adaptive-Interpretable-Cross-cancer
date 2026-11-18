@@ -283,10 +283,23 @@ def cmd_loco(cfg: Config) -> None:
         results[held] = res
         print(f"[loco:{held}] bacc={res.get('balanced_accuracy', float('nan')):.3f} "
               f"c_index={res['c_index']:.3f} logrank_p={res['logrank_p']:.2e}")
-    path = os.path.join(cfg.train.out_dir, f"{cfg.tag}_loco.json")
+        # Written after every cohort, not once at the end. At pan-cancer
+        # scale this loop is 32 fits and several hours; holding the whole
+        # dict in memory until the last one means an interrupted run leaves
+        # no file at all and discards every completed cohort. Same defect
+        # the ablation had, same fix.
+        with open(path_for(cfg), "w") as fh:
+            json.dump(results, fh, indent=2, default=float)
+        print(f"  [{len(results)}/{len(cfg.data.cohorts)}] wrote "
+              f"{path_for(cfg)}")
+    path = path_for(cfg)
     with open(path, "w") as fh:
         json.dump(results, fh, indent=2, default=float)
     print(f"wrote {path}")
+
+
+def path_for(cfg: Config) -> str:
+    return os.path.join(cfg.train.out_dir, f"{cfg.tag}_loco.json")
 
 
 def cmd_explain(cfg: Config, checkpoint: str) -> None:
