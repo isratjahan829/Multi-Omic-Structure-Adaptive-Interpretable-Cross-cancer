@@ -353,7 +353,19 @@ def main(argv=None) -> None:
     cfg = Config.load(args.config) if args.config else Config()
     cfg = _apply_overrides(cfg, args)
     os.makedirs(cfg.train.out_dir, exist_ok=True)
-    cfg.save(os.path.join(cfg.train.out_dir, f"{cfg.tag}_config.json"))
+    # Per command, not per tag. Every command used to write {tag}_config.json,
+    # so running `ablate` in a results directory silently overwrote the config
+    # describing the `train` run that produced the numbers already in it --
+    # replacing 200 genes / 20 epochs / 5 folds with the ablation's cheaper
+    # settings. That file is cited as the provenance record for every result
+    # beside it, so the overwrite turned the one file a reviewer checks to
+    # confirm settings into a false statement about them.
+    cfg.save(os.path.join(cfg.train.out_dir,
+                          f"{cfg.tag}_{args.command}_config.json"))
+    if args.command == "train":
+        # The documented name, kept for the run that produces the manuscript
+        # numbers. Only `train` writes it.
+        cfg.save(os.path.join(cfg.train.out_dir, f"{cfg.tag}_config.json"))
 
     if args.command == "train":
         cmd_train(cfg)

@@ -102,7 +102,7 @@ rejected, and at a thesis defence it is worse than rejected.
 | Which patients? | `runs_pan_*/table1_cohorts.csv` — per-cohort n, events, event rate, median follow-up |
 | Which genes, and why those? | MSK-IMPACT 468 panel, fixed before any data was seen; `data_pan/panel_genes.json` lists them |
 | How were folds made? | `mosaic/data/preprocess.py:stratification_key` — stratified by cohort × class × event |
-| Exact settings for every number? | `runs_pan_*/<tag>_config.json`, written beside every result |
+| Exact settings for every number? | `runs_pan_*/<tag>_config.json` for the manuscript run; `<tag>_<command>_config.json` for each later phase (ablate, loco) |
 | Is there leakage? | `runs_pan_*/tableS2_permutation_test.csv` (label permutation), plus `LEAKY_FOR_TARGET` in `mosaic/data/preprocess.py` |
 | Can I run it? | `scripts/run_pan.sh` (whole schedule), `notebooks/mosaic_gnn.ipynb` (executed, with outputs) |
 
