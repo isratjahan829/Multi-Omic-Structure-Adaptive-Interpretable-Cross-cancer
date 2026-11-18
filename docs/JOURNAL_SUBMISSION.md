@@ -75,12 +75,21 @@ survival side is where it is defensible.
 
 ### Two things a reviewer will find if you do not declare them
 
-* **The cohort loss has a candidate mechanical cause.** The architecture
-  trains a cohort adversary through gradient reversal to strip cohort
-  identity from the shared representation, so the `cohort` endpoint scores it
-  on recovering what it was regularised to discard. State this as a testable
-  explanation, not a defence, and name the test: the `no_disentangle`
-  ablation. If that ablation has not run, say the explanation is untested.
+* **The cohort loss is unexplained, and the obvious explanation has been
+  tested and rejected.** The natural story is that the architecture's cohort
+  adversary, trained through gradient reversal to strip cohort identity from
+  the shared representation, makes the `cohort` endpoint ask for exactly what
+  the model was regularised to discard. We committed to that explanation,
+  named `no_disentangle` as its test, and ran it: removing the adversary
+  moved balanced accuracy by **−0.0068** (0.5772 → 0.5705 over two folds),
+  inside the ±0.01 noise floor and in the wrong direction. The explanation
+  required something near the 0.17 gap to the linear baselines.
+
+  Write it this way round. A pre-registered hypothesis that was tested and
+  abandoned is a strength in a defence; the same hypothesis asserted without
+  the test is the sentence an examiner will attack, and rightly, because it
+  reads as an excuse for a bad result. Do not reintroduce the adversary story
+  as the reason for the cohort deficit — it is not supported.
 * **The mutation block contributes almost nothing.** Mean absolute integrated
   gradients split by omic block give mutation 0.7% on `cohort` and 6.8% on
   `stage_binary`, against 74.6% and 48.7% for expression. Either sparse

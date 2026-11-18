@@ -134,32 +134,50 @@ approaches the tissue numbers. That contrast — near-ceiling tissue, modest
 stage, same patients, same genes, same pipeline — is a finding about what bulk
 multi-omics encodes, and it is stated plainly here rather than buried.
 
-### Where MOSAIC-GNN loses on tissue of origin, and why that was predictable
+### Where MOSAIC-GNN loses on tissue of origin, and the explanation that failed
 
 On the `cohort` target MOSAIC-GNN reaches balanced accuracy **0.751** against
 logistic regression's **0.942**. That is not a narrow miss; it is a loss of
 nineteen points to the simplest model in the panel, and no reading of the
 table makes it anything else.
 
-There is a mechanical reason, and it is stated here as an explanation under
-test rather than as a defence. The architecture contains a cohort adversary
-trained through gradient reversal, whose entire purpose is to remove
-cohort-identifying information from the shared representation so that what
-remains transfers across cancer types. Scoring that model on cohort
-classification measures how well it recovers precisely the information it was
-regularised to discard. Logistic regression operates under no such constraint
-and is free to key on tissue-specific mutation patterns, which a 468-gene
-panel supplies in abundance.
+An earlier version of this document proposed a mechanical cause. The
+architecture contains a cohort adversary trained through gradient reversal,
+whose purpose is to remove cohort-identifying information from the shared
+representation so that what remains transfers across cancer types. Scoring
+that model on cohort classification, the argument ran, measures how well it
+recovers precisely the information it was regularised to discard — so the
+deficit would be an artefact of the objective rather than a weakness of the
+model.
 
-The honest position is therefore: `cohort` is the wrong benchmark for this
-architecture, and it would have been the wrong benchmark whatever the result.
-It is reported because it was run, and because a report that dropped the
-target where the model does badly would not be worth reading. The
-`no_disentangle` ablation is the direct test — if removing the adversary
-recovers most of the nineteen points, the explanation holds; if it does not,
-the explanation is wrong and the loss is unexplained. Until that ablation
-runs, neither conclusion may be asserted, and this paragraph claims only that
-the prediction is falsifiable.
+That prediction was stated as falsifiable, the test was named in advance, and
+**the test has now been run and the prediction failed.**
+
+| `cohort` ablation, 2 folds | balanced accuracy | AUROC | C-index |
+|---|---|---|---|
+| `full` | 0.5772 ± 0.0057 | 0.9635 | 0.7344 |
+| `no_disentangle` | 0.5705 ± 0.0080 | 0.9620 | 0.7372 |
+| **difference** | **−0.0068** | −0.0015 | +0.0028 |
+
+Removing the adversary entirely recovers **nothing**. Classification is
+fractionally worse, and −0.007 sits inside the ±0.01 noise floor, so the
+correct reading is no effect. The explanation required a gain approaching the
+0.17 separating this model from the linear baselines; the measured change is
+roughly twenty-five times smaller and points the wrong way.
+
+**So the cohort classification deficit is unexplained.** It is not an
+artefact of the disentanglement objective. The adversary is not what is
+costing the model those nineteen points, and any sentence suggesting
+otherwise has been removed from this report rather than softened.
+
+Two statements survive, and only these two. First, `cohort` remains a weak
+benchmark for separating *conventional* classifiers, which bunch within a
+hundredth of each other — but it separates this architecture from them
+perfectly well, and unfavourably. Second, a hypothesis that was committed to
+in advance, tested against the obvious experiment, and abandoned on the
+result is worth more at an examination than one that was never checked. What
+would not have been defensible is leaving the claim standing because it was
+convenient.
 
 ### Calibration on the 32-class head is poor
 

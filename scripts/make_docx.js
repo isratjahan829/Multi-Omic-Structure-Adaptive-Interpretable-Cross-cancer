@@ -353,12 +353,14 @@ text("Conclusions. On a pan-cancer cohort with a pre-committed feature space, "
    + "classifiers. The defensible contribution is therefore the quantified "
    + "molecular-over-clinical prognostic gain and the audited comparison "
    + "protocol, not a performance claim for the proposed architecture, which "
-   + "loses on both classification endpoints. On tissue of origin that loss "
-   + "has a specific candidate cause: the model's cohort adversary is trained "
-   + "through gradient reversal to remove cohort identity from the shared "
-   + "representation, so the endpoint scores it on recovering what it was "
-   + "regularised to discard. We report the comparators that match or exceed "
-   + "the proposed model rather than selecting an endpoint on which it wins.");
+   + "loses on both classification endpoints. We pre-registered a mechanical "
+   + "explanation for the tissue-of-origin deficit — that the model's "
+   + "gradient-reversal cohort adversary removes the very identity the "
+   + "endpoint asks for — and tested it by ablating that component; removing "
+   + "it changed balanced accuracy by −0.007, inside the run-to-run noise "
+   + "floor, so the explanation is rejected and the deficit remains "
+   + "unexplained. We report the comparators that match or exceed the "
+   + "proposed model rather than selecting an endpoint on which it wins.");
 text("Keywords: multi-omics; graph neural network; pan-cancer; survival "
    + "analysis; TCGA; interpretability; biomarker discovery.",
      { size: 20, italics: true });
