@@ -175,11 +175,25 @@ Being first to state these is worth more than hoping they go unnoticed.
 3. **Thirteen of 32 cohorts publish no AJCC stage**, so the stage analysis
    covers 6 634 patients across 19 cohorts, not all 10 953. State both
    numbers.
-4. **Leave-one-cancer-out on the tissue target is degenerate by
-   construction**: the held-out class is never seen in training, so its
-   balanced accuracy is near zero necessarily. Only the survival transfer in
-   that table carries information. Say this, or a reviewer will think you
-   did not notice.
+4. **Do not report leave-one-cancer-out classification accuracy at all.**
+   An earlier version of this guide told you to say the held-out class is
+   never seen in training so its balanced accuracy is "near zero
+   necessarily". That is wrong and the run disproves it: the first held-out
+   cohort scored **0.989**.
+
+   The real situation is that the metric is undefined for this purpose. With
+   one class in the held-out set, `balanced_accuracy_score` collapses to the
+   recall of that single class (scikit-learn discards predicted-but-absent
+   classes), and Matthews correlation is 0.0000 by construction. A number
+   produced that way says nothing about transfer whether it comes out high
+   or low, so quoting it in either direction is indefensible.
+
+   There is also an unresolved anomaly behind that 0.989: the model assigned
+   the correct held-out cohort to 91 of 92 patients whose label it never saw
+   in training. Until someone explains how, treat every LOCO classification
+   figure as unusable. Report the **survival transfer** instead — C-index on
+   the held-out cohort is unaffected by the single-class problem and is the
+   number that actually tests pan-cancer generalisation.
 5. **Mini-batching deviates from the configured default.** Full-batch over
    the training set does not fit in 16 GB at this gene count, so training is
    mini-batched. That changes the optimisation trajectory; it is a real

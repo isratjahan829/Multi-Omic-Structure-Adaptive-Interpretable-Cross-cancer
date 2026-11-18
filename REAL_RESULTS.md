@@ -295,11 +295,30 @@ this evidence would be overclaiming, and the draft does not make that claim.
    178, DLBC and KICH 9 each, THCA 16 of 499. Any cohort-level survival number
    for these rests on a handful of comparable pairs. The per-cohort table
    prints the event count beside every C-index for exactly this reason.
-3. **Leave-one-cancer-out on the `cohort` target is degenerate by
-   construction.** Training on 31 cohorts and testing on the 32nd means the
-   held-out class was never observed, so its balanced accuracy is near zero
-   necessarily — that is arithmetic, not a finding. Only the survival transfer
-   in that table carries information.
+3. **Leave-one-cancer-out classification on the `cohort` target is a
+   degenerate metric, and not in the way this document previously claimed.**
+   Earlier revisions asserted that the held-out class is never seen in
+   training, so its balanced accuracy must be "near zero by arithmetic". The
+   first LOCO cohort returned **0.989**, which falsifies that reasoning
+   outright.
+
+   What is actually true is worse for the metric, not better. When the
+   held-out test set contains exactly one class, `balanced_accuracy_score`
+   reduces to the recall of that single class — scikit-learn drops the
+   predicted-but-absent classes as undefined — and Matthews correlation is
+   **0.0000 by construction**, which the run confirms. So the number is not a
+   multiclass accuracy at all and carries no information about transfer in
+   either direction, high or low.
+
+   Separately, and still unexplained: the model assigned the correct
+   held-out cohort to 91 of 92 ACC patients despite that label never
+   appearing in training. That should not be possible from a softmax head
+   given no positive examples, so it indicates something in the LOCO path
+   that has not been identified. **No leave-one-cancer-out classification
+   number is reported as a result in this work** until it is. The survival
+   transfer in the same table is unaffected by the single-class degeneracy
+   and is the half that carries information.
+
 4. **The pipeline is not bit-reproducible.** Three fits of the same fold with
    the same seed gave balanced accuracy 0.4567, 0.4341 and 0.4547. The
    parallel scatter-add in the gene-graph message passing sums in

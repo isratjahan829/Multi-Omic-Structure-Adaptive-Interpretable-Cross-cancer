@@ -741,13 +741,15 @@ def main() -> None:
             "model is trained on the remaining studies, and both "
             "classification and survival metrics are computed on the "
             "held-out study.",
-            "One property of this design must be stated whenever the results "
-            "are eventually reported, because it is a arithmetic certainty "
-            "rather than an empirical finding: on the tissue-of-origin "
-            "endpoint the held-out class is never observed during training, "
-            "so its balanced accuracy is necessarily near zero. Only the "
-            "survival transfer in those tables carries information about "
-            "generalisation to an unseen cancer type.",
+            "One property of this design must be stated whenever the "
+            "results are reported. With a single class in the held-out set, "
+            "balanced accuracy collapses to the recall of that one class — "
+            "scikit-learn discards the predicted-but-absent classes as "
+            "undefined — and Matthews correlation is zero by construction. "
+            "The classification column is therefore not a multiclass "
+            "accuracy and says nothing about transfer whether it comes out "
+            "high or low. Only the survival transfer in those tables is "
+            "interpretable.",
         ]
     sections["4.6 Transfer to an Unseen Cancer Type"] = loco_paras
 
