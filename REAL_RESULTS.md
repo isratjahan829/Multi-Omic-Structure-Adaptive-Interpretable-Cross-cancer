@@ -649,7 +649,16 @@ _Not available: the run that produces this table did not complete._
 
 ### Ablation
 
-_Not available: the run that produces this table did not complete._
+|                      |   balanced_accuracy |   auroc |   c_index |
+|:---------------------|--------------------:|--------:|----------:|
+| full                 |              0.5772 |  0.9635 |    0.7344 |
+| no_disentangle       |              0.5705 |  0.962  |    0.7372 |
+| no_gene_graph        |              0.56   |  0.962  |    0.7383 |
+| no_module_pool       |              0.5653 |  0.9614 |    0.7352 |
+| no_patient_graph     |              0.5644 |  0.9606 |    0.7355 |
+| no_contrast          |              0.5694 |  0.9617 |    0.7359 |
+| no_clinical          |              0.1178 |  0.6941 |    0.5904 |
+| no_clinical_residual |              0.3987 |  0.9262 |    0.7346 |
 
 ### Leave-one-cancer-out transfer
 
