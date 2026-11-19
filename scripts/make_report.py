@@ -251,7 +251,19 @@ def section(target: str, runs: str) -> str:
     A("")
 
     A("### Leave-one-cancer-out transfer\n")
-    A(md(read_csv(f"{runs}/table6_loco.csv")))
+    A("Survival transfer only. The classification columns are omitted "
+      "deliberately: with a single class in the held-out set, balanced "
+      "accuracy reduces to the recall of that one class and Matthews "
+      "correlation is zero by construction, so those figures measure the "
+      "structure of the test set rather than transfer. Two cohorts return "
+      "exactly 1.000 for a class never seen in training, which is the "
+      "demonstration. See the preamble for the full reasoning.\n")
+    loco = read_csv(f"{runs}/table6_loco.csv")
+    if loco is not None:
+        keep = [c for c in ("c_index", "logrank_p") if c in loco.columns]
+        if keep:
+            loco = loco[keep]
+    A(md(loco))
     A("")
 
     A("### Sample-size curve\n")

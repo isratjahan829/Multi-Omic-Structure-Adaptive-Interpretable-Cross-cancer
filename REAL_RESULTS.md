@@ -696,7 +696,42 @@ Models retrained on labels shuffled within the training and validation folds onl
 
 ### Leave-one-cancer-out transfer
 
-_Not available: the run that produces this table did not complete._
+Survival transfer only. The classification columns are omitted deliberately: with a single class in the held-out set, balanced accuracy reduces to the recall of that one class and Matthews correlation is zero by construction, so those figures measure the structure of the test set rather than transfer. Two cohorts return exactly 1.000 for a class never seen in training, which is the demonstration. See the preamble for the full reasoning.
+
+|          |   c_index |   logrank_p |
+|:---------|----------:|------------:|
+| ACC      |    0.7841 |      0      |
+| BLCA     |    0.6558 |      0      |
+| BRCA     |    0.6915 |      0      |
+| CESC     |    0.632  |      0.0063 |
+| CHOL     |    0.6516 |      0.1456 |
+| COADREAD |    0.7302 |      0      |
+| DLBC     |    0.4917 |      0.758  |
+| ESCA     |    0.6011 |      0.0115 |
+| GBM      |    0.5268 |      0.9791 |
+| HNSC     |    0.6095 |      0      |
+| KICH     |    0.8834 |      0.0163 |
+| KIRC     |    0.766  |      0      |
+| KIRP     |    0.7836 |      0.0001 |
+| LAML     |    0.5208 |      0.5486 |
+| LGG      |    0.703  |      0      |
+| LIHC     |    0.5973 |      0.0014 |
+| LUAD     |    0.5733 |      0.0011 |
+| LUSC     |    0.5873 |      0.0059 |
+| MESO     |    0.5114 |      0.4707 |
+| OV       |    0.516  |      0.0337 |
+| PAAD     |    0.589  |      0.0273 |
+| PCPG     |    0.8366 |      0.1278 |
+| PRAD     |    0.5371 |      0.3037 |
+| SARC     |    0.5584 |      0.4869 |
+| SKCM     |    0.6323 |      0.004  |
+| STAD     |    0.6179 |      0.0001 |
+| TGCT     |    0.5333 |      0.4175 |
+| THCA     |    0.9078 |      0.0003 |
+| THYM     |    0.7742 |      0.0126 |
+| UCEC     |    0.6035 |      0.004  |
+| UCS      |    0.519  |      0.3886 |
+| UVM      |    0.4201 |      0.1598 |
 
 ### Sample-size curve
 
@@ -887,6 +922,8 @@ _Not available: the run that produces this table did not complete._
 _Not available: the run that produces this table did not complete._
 
 ### Leave-one-cancer-out transfer
+
+Survival transfer only. The classification columns are omitted deliberately: with a single class in the held-out set, balanced accuracy reduces to the recall of that one class and Matthews correlation is zero by construction, so those figures measure the structure of the test set rather than transfer. Two cohorts return exactly 1.000 for a class never seen in training, which is the demonstration. See the preamble for the full reasoning.
 
 _Not available: the run that produces this table did not complete._
 
