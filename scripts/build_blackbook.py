@@ -945,6 +945,37 @@ def main() -> None:
         "control on the ranked gene file this pipeline already emits.",
     ]
 
+    # ---- captions ------------------------------------------------------- #
+    # Captions are not body text and are not reached by replace_section, so
+    # they survived every prose rewrite. Table 4.1 ended up holding 32 real
+    # cohorts under a caption reading "the four synthetic demonstration
+    # cohorts" -- a caption contradicting its own table, which is worse than
+    # either being wrong alone because it makes a reader distrust both.
+    caption_fixes = [
+        ("Cohort characteristics for the four synthetic demonstration "
+         "cohorts",
+         f"Cohort characteristics for the {n_coh} TCGA PanCanAtlas studies "
+         f"retrieved from the cBioPortal API"),
+        ("for the four synthetic demonstration cohorts",
+         f"for the {n_coh} TCGA PanCanAtlas studies"),
+        ("four synthetic demonstration cohorts", f"{n_coh} real cohorts"),
+        ("as is typical for TCGA-style cohorts",
+         "as is typical for TCGA cohorts"),
+    ]
+    fixed = 0
+    for par in doc.paragraphs:
+        t = par.text
+        if not t.strip():
+            continue
+        new_t = t
+        for a, b in caption_fixes:
+            if a in new_t:
+                new_t = new_t.replace(a, b)
+        if new_t != t:
+            set_text(par, new_t)
+            fixed += 1
+    print(f"  captions corrected: {fixed}")
+
     for heading, paras in sections.items():
         print(f"  prose [{heading}]: {replace_section(doc, heading, paras)}")
 
