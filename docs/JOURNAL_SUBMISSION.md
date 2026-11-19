@@ -73,6 +73,47 @@ survival side is where it is defensible.
   uncertainty-equipped baseline such as a deep ensemble. Claim it at exactly
   that strength or leave it out.
 
+### What the completed phases found
+
+All four phases that were outstanding when this guide was first written
+have now run. Their results change what you can claim, in both directions.
+
+**Ablation (8 arms, 100 genes / 6 epochs / 2 folds).** The components split
+cleanly along a structural/auxiliary line. All three graph components clear
+the ±0.01 noise floor when removed — gene graph −0.0172, patient graph
+−0.0128, module pooling −0.0119 — so the two-level coupling the thesis
+proposes does earn its place. Both auxiliary objectives fall inside the
+floor: cross-omic contrast −0.0079, disentanglement −0.0068. Present those
+two as optional rather than defending them; a reviewer who checks will
+reach that conclusion anyway, and reaching it first is worth more.
+
+The clinical pathway dwarfs everything: **−0.4594** balanced accuracy, with
+its residual connection alone worth −0.1785. Tissue of origin is carried
+principally by clinical covariates. Say so in the abstract.
+
+**Permutation null (B = 4).** The pipeline passes. Nulls land at chance —
+balanced accuracy 0.0164 ± 0.0046 against 1/32 = 0.031, AUROC 0.4869 and
+c-index 0.5055 against 0.5. Report it as a leakage diagnostic with B and
+the p-floor stated (1/(B+1) = 0.2), never as a test that reached
+significance.
+
+**Leave-one-cancer-out (all 32 cohorts).** C-index median 0.606, range
+0.420–0.908; 30 of 32 above 0.5 and 21 of 32 significant. This is the
+strongest architecture-level result in the work. Report only the survival
+column — see the item above on why the classification column is unusable.
+
+Transfer falls as the held-out cohort's event rate rises (r = −0.714,
+p = 0.0004, among the 20 cohorts with ≥60 events). Label this exploratory:
+it was prompted by the GBM result rather than planned.
+
+**Sample-size curve.** Over a fourfold increase in training patients,
+held-out balanced accuracy gains 0.175 and c-index gains 0.024. Training
+c-index is flat throughout. So more data would improve the endpoint this
+architecture loses on and not the one where it is competitive — a sharper
+limitation than "more data would help", and the one to write.
+
+---
+
 ### Two things a reviewer will find if you do not declare them
 
 * **The cohort loss is unexplained, and the obvious explanation has been
@@ -233,11 +274,14 @@ Being first to state these is worth more than hoping they go unnoticed.
 > prose quotes real results and whose figures come from invented data, with
 > nothing in the output flagging it. Build with `--runs runs_pan_cohort`.
 >
-> The pan-cancer runs produced **no** figures, so the current draft marks
-> every one as not run. That is the correct state: a missing figure is
-> visible, a wrong figure is not. The only figures from real data are in
-> `deliverables/notebook_figures/`, and they come from the reduced notebook
-> configuration — not quotable as manuscript results.
+> **This is now resolved.** `scripts/make_figures.py` draws all nine
+> Chapter 3 figures from the pan-cancer run outputs into `figures/`, and
+> `build_manuscript.py` picks them up once they are copied into
+> `runs_pan_cohort/`. The draft places all nine. The earlier state — every
+> figure marked not run — was correct while it lasted, because a missing
+> figure is visible and a wrong one is not, and the synthetic PNGs in
+> `runs/` are still sitting there under the exact filenames the builder
+> reads. The warning above still applies.
 
 In rough order of how much they earn:
 
