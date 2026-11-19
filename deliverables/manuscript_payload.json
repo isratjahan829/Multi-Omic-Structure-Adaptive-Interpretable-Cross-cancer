@@ -2469,6 +2469,307 @@
    "landscape": false,
    "font": 8
   },
+  "T8": {
+   "label": "Table 8",
+   "caption": "Ablation. Each row removes exactly one component of MOSAIC-GNN and is trained under an otherwise identical protocol. A component is justified only when its removal costs performance.",
+   "grid": [
+    [
+     "Variant",
+     "BAcc",
+     "AUROC",
+     "C-index"
+    ],
+    [
+     "full",
+     "0.577",
+     "0.964",
+     "0.734"
+    ],
+    [
+     "no_disentangle",
+     "0.570",
+     "0.962",
+     "0.737"
+    ],
+    [
+     "no_gene_graph",
+     "0.560",
+     "0.962",
+     "0.738"
+    ],
+    [
+     "no_module_pool",
+     "0.565",
+     "0.961",
+     "0.735"
+    ],
+    [
+     "no_patient_graph",
+     "0.564",
+     "0.961",
+     "0.736"
+    ],
+    [
+     "no_contrast",
+     "0.569",
+     "0.962",
+     "0.736"
+    ],
+    [
+     "no_clinical",
+     "0.118",
+     "0.694",
+     "0.590"
+    ],
+    [
+     "no_clinical_residual",
+     "0.399",
+     "0.926",
+     "0.735"
+    ]
+   ],
+   "landscape": true,
+   "font": 6
+  },
+  "T9": {
+   "label": "Table 9",
+   "caption": "Leave-one-cancer-out transfer. The model is trained on three cohorts and evaluated on the fourth, which it has never seen. This is the test that distinguishes a pan-cancer representation from a cohort detector.",
+   "grid": [
+    [
+     "Held-out cohort",
+     "BAcc",
+     "AUROC",
+     "C-index",
+     "LR-p"
+    ],
+    [
+     "ACC",
+     "0.989",
+     "\u2014",
+     "0.784",
+     "3.7e-07"
+    ],
+    [
+     "BLCA",
+     "0.971",
+     "\u2014",
+     "0.656",
+     "2.5e-09"
+    ],
+    [
+     "BRCA",
+     "0.990",
+     "\u2014",
+     "0.692",
+     "1.6e-06"
+    ],
+    [
+     "CESC",
+     "1.000",
+     "\u2014",
+     "0.632",
+     "0.006"
+    ],
+    [
+     "CHOL",
+     "0.972",
+     "\u2014",
+     "0.652",
+     "0.146"
+    ],
+    [
+     "COADREAD",
+     "0.998",
+     "\u2014",
+     "0.730",
+     "1.8e-15"
+    ],
+    [
+     "DLBC",
+     "1.000",
+     "\u2014",
+     "0.492",
+     "0.758"
+    ],
+    [
+     "ESCA",
+     "0.989",
+     "\u2014",
+     "0.601",
+     "0.011"
+    ],
+    [
+     "GBM",
+     "0.956",
+     "\u2014",
+     "0.527",
+     "0.979"
+    ],
+    [
+     "HNSC",
+     "0.945",
+     "\u2014",
+     "0.609",
+     "1.6e-06"
+    ],
+    [
+     "KICH",
+     "0.892",
+     "\u2014",
+     "0.883",
+     "0.016"
+    ],
+    [
+     "KIRC",
+     "0.871",
+     "\u2014",
+     "0.766",
+     "9.6e-17"
+    ],
+    [
+     "KIRP",
+     "0.979",
+     "\u2014",
+     "0.784",
+     "8.3e-05"
+    ],
+    [
+     "LAML",
+     "0.975",
+     "\u2014",
+     "0.521",
+     "0.549"
+    ],
+    [
+     "LGG",
+     "0.965",
+     "\u2014",
+     "0.703",
+     "6.6e-07"
+    ],
+    [
+     "LIHC",
+     "0.898",
+     "\u2014",
+     "0.597",
+     "0.001"
+    ],
+    [
+     "LUAD",
+     "0.998",
+     "\u2014",
+     "0.573",
+     "0.001"
+    ],
+    [
+     "LUSC",
+     "0.986",
+     "\u2014",
+     "0.587",
+     "0.006"
+    ],
+    [
+     "MESO",
+     "1.000",
+     "\u2014",
+     "0.511",
+     "0.471"
+    ],
+    [
+     "OV",
+     "1.000",
+     "\u2014",
+     "0.516",
+     "0.034"
+    ],
+    [
+     "PAAD",
+     "1.000",
+     "\u2014",
+     "0.589",
+     "0.027"
+    ],
+    [
+     "PCPG",
+     "0.994",
+     "\u2014",
+     "0.837",
+     "0.128"
+    ],
+    [
+     "PRAD",
+     "1.000",
+     "\u2014",
+     "0.537",
+     "0.304"
+    ],
+    [
+     "SARC",
+     "1.000",
+     "\u2014",
+     "0.558",
+     "0.487"
+    ],
+    [
+     "SKCM",
+     "0.986",
+     "\u2014",
+     "0.632",
+     "0.004"
+    ],
+    [
+     "STAD",
+     "0.959",
+     "\u2014",
+     "0.618",
+     "8.6e-05"
+    ],
+    [
+     "TGCT",
+     "0.899",
+     "\u2014",
+     "0.533",
+     "0.418"
+    ],
+    [
+     "THCA",
+     "0.990",
+     "\u2014",
+     "0.908",
+     "3.4e-04"
+    ],
+    [
+     "THYM",
+     "0.976",
+     "\u2014",
+     "0.774",
+     "0.013"
+    ],
+    [
+     "UCEC",
+     "1.000",
+     "\u2014",
+     "0.603",
+     "0.004"
+    ],
+    [
+     "UCS",
+     "0.754",
+     "\u2014",
+     "0.519",
+     "0.389"
+    ],
+    [
+     "UVM",
+     "0.150",
+     "\u2014",
+     "0.420",
+     "0.160"
+    ]
+   ],
+   "landscape": true,
+   "font": 6
+  },
   "T10": {
    "label": "Table 10",
    "caption": "Top 25 genes by integrated-gradient attribution, with the functional module each belongs to, its mean attention gate, and the signed contribution of each omic layer.",
@@ -2954,6 +3255,98 @@
    "landscape": true,
    "font": 7
   },
+  "S2": {
+   "label": "Table S2",
+   "caption": "Label permutation test. The model is retrained on shuffled training labels and scored on the intact test split. A null that sits at chance is evidence that no information leaks from the label into the features.",
+   "grid": [
+    [
+     "Metric",
+     "observed",
+     "null_mean",
+     "null_sd",
+     "null_max",
+     "n_permutations",
+     "p_value"
+    ],
+    [
+     "balanced_accuracy",
+     "0.5937",
+     "0.0164",
+     "0.0046",
+     "0.0194",
+     "4.0000",
+     "0.2000"
+    ],
+    [
+     "auroc",
+     "0.9693",
+     "0.4869",
+     "0.0447",
+     "0.5474",
+     "4.0000",
+     "0.2000"
+    ],
+    [
+     "c_index",
+     "0.7348",
+     "0.5055",
+     "0.0441",
+     "0.5594",
+     "4.0000",
+     "0.2000"
+    ]
+   ],
+   "landscape": false,
+   "font": 9
+  },
+  "S3": {
+   "label": "Table S3",
+   "caption": "Test performance as a function of training-set size, separating a data limit from a capacity limit.",
+   "grid": [
+    [
+     "n train",
+     "train_balanced_accuracy",
+     "train_c_index",
+     "test_balanced_accuracy",
+     "test_c_index",
+     "fraction"
+    ],
+    [
+     "912",
+     "0.498",
+     "0.764",
+     "0.419",
+     "0.714",
+     "0.250"
+    ],
+    [
+     "1825",
+     "0.592",
+     "0.765",
+     "0.514",
+     "0.728",
+     "0.500"
+    ],
+    [
+     "2737",
+     "0.613",
+     "0.764",
+     "0.577",
+     "0.735",
+     "0.750"
+    ],
+    [
+     "3650",
+     "0.626",
+     "0.762",
+     "0.594",
+     "0.738",
+     "1.000"
+    ]
+   ],
+   "landscape": false,
+   "font": 9
+  },
   "S4": {
    "label": "Table S4",
    "caption": "Training and validation metrics recorded every five epochs.",
@@ -3132,7 +3525,53 @@
    "font": 8
   }
  },
- "figures": [],
+ "figures": [
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig1_cohorts.png",
+   "label": "Figure 1",
+   "caption": "Cohort composition. (a) class distribution by cohort; (b) follow-up distribution; (c) Kaplan-Meier curves per cohort; (d) event rate per cohort."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig2_risk.png",
+   "label": "Figure 2",
+   "caption": "Risk stratification. (a) Kaplan-Meier curves for model-defined risk tertiles with the log-rank p and the hazard ratio between the outer tertiles; (b) mean predicted survival curves from the discrete-time hazard head; (c) calibration of predicted against observed survival at 36 months."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig3_classification.png",
+   "label": "Figure 3",
+   "caption": "Classification behaviour. (a) row-normalised confusion matrix; (b) one-vs-rest ROC curves; (c) reliability diagram with the expected calibration error; (d) accuracy against coverage when abstaining by MC-dropout predictive entropy."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig4_comparison.png",
+   "label": "Figure 4",
+   "caption": "Model comparison. (a) C-index with 95 % bootstrap intervals for every model; (b) balanced accuracy; (c) macro one-vs-rest AUROC. MOSAIC-GNN is highlighted."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig5_ablation.png",
+   "label": "Figure 5",
+   "caption": "Ablation. Change in each headline metric when a single component is removed; negative values mean the removed component was contributing."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig6_loco.png",
+   "label": "Figure 6",
+   "caption": "Leave-one-cancer-out transfer. (a) performance on each held-out cohort; (b) the gap between transfer performance and pooled cross-validation."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/fig7_interpretation.png",
+   "label": "Figure 7",
+   "caption": "Interpretation. (a) top genes by integrated-gradient attribution; (b) signed attribution decomposed by omic layer; (c) module attention by cohort."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/figS1_learning_curves.png",
+   "label": "Figure S1",
+   "caption": "Learning curves. (a) balanced accuracy and (b) C-index on the training and validation splits during training; (c) the train-minus-validation gap, which is what early stopping monitors."
+  },
+  {
+   "file": "/home/user/multi-omic-structure-adaptive-interpretable-cross-cancer/runs_pan_cohort/figS2_sample_size.png",
+   "label": "Figure S2",
+   "caption": "Sample-size curves for (a) balanced accuracy and (b) C-index, on the training and held-out splits."
+  }
+ ],
  "facts": {
   "cohort": {
    "runs": "runs_pan_cohort",
@@ -3583,6 +4022,115 @@
       "cindex_sig": false
      }
     }
+   },
+   "ablation": {
+    "full_bacc": 0.5772272971994878,
+    "n_arms": 7,
+    "arms": {
+     "no_disentangle": {
+      "bacc": 0.5704682579765565,
+      "delta": -0.006759039222931307
+     },
+     "no_gene_graph": {
+      "bacc": 0.5599794962103821,
+      "delta": -0.01724780098910572
+     },
+     "no_module_pool": {
+      "bacc": 0.565326935378597,
+      "delta": -0.011900361820890826
+     },
+     "no_patient_graph": {
+      "bacc": 0.5644307138491705,
+      "delta": -0.012796583350317303
+     },
+     "no_contrast": {
+      "bacc": 0.5693640602031279,
+      "delta": -0.007863236996359935
+     },
+     "no_clinical": {
+      "bacc": 0.1178131202374708,
+      "delta": -0.45941417696201703
+     },
+     "no_clinical_residual": {
+      "bacc": 0.398681506336016,
+      "delta": -0.17854579086347183
+     }
+    },
+    "outside_floor": [
+     "no_clinical",
+     "no_clinical_residual",
+     "no_gene_graph",
+     "no_patient_graph",
+     "no_module_pool"
+    ],
+    "inside_floor": [
+     "no_contrast",
+     "no_disentangle"
+    ]
+   },
+   "loco": {
+    "n_cohorts": 32,
+    "min": 0.4201183431952662,
+    "max": 0.9078091106290672,
+    "median": 0.606478289535048,
+    "n_above_half": 30,
+    "n_significant": 21,
+    "corr_all": {
+     "n": 32,
+     "r": -0.5079527819375135,
+     "p": 0.0029981678088097817
+    },
+    "corr_powered": {
+     "n": 20,
+     "r": -0.71398253011053,
+     "p": 0.0004066170267772594
+    }
+   },
+   "sample_size": {
+    "n_points": 4,
+    "n_min": 912,
+    "n_max": 3650,
+    "bacc_min": 0.4185260159524244,
+    "bacc_max": 0.5938947564508279,
+    "bacc_gain": 0.1753687404984035,
+    "cindex_min": 0.7143455185977363,
+    "cindex_max": 0.7379396382211492,
+    "cindex_gain": 0.023594119623412846,
+    "train_cindex_flat": [
+     0.7638013423549753,
+     0.7646752089424292,
+     0.7643285503833707,
+     0.7617876807316625
+    ]
+   },
+   "permutation": {
+    "rows": 3,
+    "columns": [
+     "observed",
+     "null_mean",
+     "null_sd",
+     "null_max",
+     "n_permutations",
+     "p_value"
+    ]
+   },
+   "permutation_values": {
+    "bacc": {
+     "obs": 0.5936575865494628,
+     "mean": 0.0163981828779689,
+     "sd": 0.004581585071838
+    },
+    "auroc": {
+     "obs": 0.9693448013445328,
+     "mean": 0.4868796885811527,
+     "sd": 0.0446827513892551
+    },
+    "cindex": {
+     "obs": 0.7348335376857144,
+     "mean": 0.5054848160522459,
+     "sd": 0.044133691059401
+    },
+    "n": 4
    }
   },
   "stage_binary": {

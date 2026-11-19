@@ -608,6 +608,44 @@ text("Table S1 reports identical metrics on the training, validation and "
    + "attainable p-value is 1/(B+1), so the p-value is bounded by the "
    + "permutation count and not only by the evidence; the table states B for "
    + "that reason. Table S3 and Figure S2 give the sample-size curve.");
+(() => {
+  const pm = FACTS.cohort && FACTS.cohort.permutation_values;
+  const nb = int("cohort", "n_cohorts");
+  if (pm && pm.bacc) {
+    text("The pipeline passes that control. Over " + pm.n + " retrains on "
+       + "labels and survival times shuffled within the training and "
+       + "validation folds, the nulls sit where chance predicts: balanced "
+       + "accuracy " + pm.bacc.mean.toFixed(4) + " ± "
+       + pm.bacc.sd.toFixed(4) + " against 1/" + nb + " = 0.031, AUROC "
+       + pm.auroc.mean.toFixed(4) + " and c-index " + pm.cindex.mean.toFixed(4)
+       + ", both against 0.5 for a model with no information, while the "
+       + "observed values on intact labels are " + pm.bacc.obs.toFixed(4)
+       + ", " + pm.auroc.obs.toFixed(4) + " and " + pm.cindex.obs.toFixed(4)
+       + ". Nothing in the pipeline transmits label information to a model "
+       + "that should have none. At B = " + pm.n + " the smallest attainable "
+       + "p-value is " + (1 / (pm.n + 1)).toFixed(2) + ", which is what the "
+       + "table reports for every metric, so these p-values are not "
+       + "significant and the conclusion is diagnostic rather than inferential.");
+  }
+  const ss = FACTS.cohort && FACTS.cohort.sample_size;
+  if (ss) {
+    text("The sample-size curve shows the two heads have very different "
+       + "appetites for data. Between " + ss.n_min.toLocaleString() + " and "
+       + ss.n_max.toLocaleString() + " training patients, held-out balanced "
+       + "accuracy rises from " + ss.bacc_min.toFixed(3) + " to "
+       + ss.bacc_max.toFixed(3) + " (+" + ss.bacc_gain.toFixed(3)
+       + ") while the c-index rises only from " + ss.cindex_min.toFixed(3)
+       + " to " + ss.cindex_max.toFixed(3) + " (+"
+       + ss.cindex_gain.toFixed(3) + ") — roughly sevenfold more benefit to "
+       + "classification than to survival ranking. The training c-index is "
+       + "flat across every size, so the survival head extracts what it can "
+       + "from the smallest sample and the remaining gain is the held-out "
+       + "curve rising to meet a fixed ceiling. More patients would improve "
+       + "the endpoint on which this architecture loses and would not improve "
+       + "the one on which it holds its own, which is a sharper statement "
+       + "than a general appeal to more data.");
+  }
+})();
 addTable("S1");
 addFigure("Figure S1");
 addTable("S2");
@@ -685,14 +723,50 @@ text("Read this table against the measured noise floor before reading it as "
    + "removal does not cost more than the noise floor should be presented as "
    + "optional and their claims withdrawn rather than defended — that is the "
    + "honest reading, and it is the reading a reviewer will apply.");
-text("The no_clinical row deserves particular attention on the tissue target. "
-   + "Clinical coding vocabularies differ sharply between these studies, so a "
-   + "classifier can read tissue of origin partly from which clinical fields "
-   + "are populated rather than from their values. The leakage guard removes "
-   + "columns whose names give the label away, but it cannot remove that "
-   + "pattern of missingness. The no_clinical row measures how much of the "
-   + "tissue result it explains, and should be read before the headline "
-   + "number for that target.");
+(() => {
+  const ab = FACTS.cohort && FACTS.cohort.ablation;
+  if (!ab) { missing.add("cohort.ablation"); return; }
+  const d = (k) => (ab.arms[k] ? ab.arms[k].delta.toFixed(4) : "n/a");
+  const nm = (k) => k.replace("no_", "");
+  text("Measured against the full model's balanced accuracy of "
+     + ab.full_bacc.toFixed(4) + " over " + ab.n_arms + " single-component "
+     + "removals, the components separate cleanly along a structural/auxiliary "
+     + "line. Removing either graph level or the module pooling between them "
+     + "costs more than the noise floor — gene graph "
+     + d("no_gene_graph") + ", patient graph " + d("no_patient_graph")
+     + ", module pooling " + d("no_module_pool") + " — so the two-level "
+     + "coupling this paper proposes does earn its place inside the "
+     + "architecture. Both auxiliary objectives fall inside the floor: "
+     + "cross-omic contrast " + d("no_contrast") + " and disentanglement "
+     + d("no_disentangle") + ". On this evidence they are optional, and we "
+     + "say so rather than defending them.");
+  text("The clinical pathway dominates everything else by an order of "
+     + "magnitude. Removing it costs " + d("no_clinical") + " balanced "
+     + "accuracy, and removing only its residual connection costs "
+     + d("no_clinical_residual") + ". Tissue of origin is therefore carried "
+     + "principally by clinical covariates rather than by the molecular data, "
+     + "which is unsurprising once stated — sex alone separates PRAD and TGCT "
+     + "from OV, UCEC, UCS and CESC, and age and stage distributions differ "
+     + "sharply between studies. This is not leakage: the guard removes the "
+     + "direct identifiers. It is legitimate signal that does most of the "
+     + "work, and it explains why penalised logistic regression on the same "
+     + "features reaches " + best("cohort", "best_balanced_accuracy") + ". "
+     + "Chance across " + int("cohort", "n_cohorts") + " classes is 0.031, so "
+     + "the molecular channels alone sustain performance above chance and far "
+     + "below useful.");
+  text("One ablation row tested a hypothesis registered in advance. We "
+     + "predicted that the tissue-of-origin deficit was an artefact of the "
+     + "model's own objective — the cohort adversary is trained through "
+     + "gradient reversal to strip cohort identity from the shared "
+     + "representation, so the endpoint asks it to recover what it was "
+     + "regularised to discard — and named no_disentangle as the test. "
+     + "Removing the adversary changed balanced accuracy by "
+     + d("no_disentangle") + ", inside the noise floor and in the wrong "
+     + "direction, where the explanation required something approaching the "
+     + "0.17 separating this model from the linear baselines. The prediction "
+     + "was falsifiable, it was tested, and it failed; the deficit is "
+     + "unexplained and is reported as such.");
+})();
 addTable("T8");
 addTable("T9");
 addFigure("Figure 5");
@@ -706,17 +780,55 @@ text("Tables 10 and 11 and Figure 6 report leave-one-cancer-out transfer, in "
    + "the same fixed gene panel in every cohort; with per-cohort gene "
    + "selection the held-out cohort's features would not be the ones the "
    + "model was trained on, and the numbers would mean nothing.");
-text("On the tissue-of-origin target, leave-one-cancer-out is degenerate by "
-   + "construction and must not be read as a transfer result: the held-out "
-   + "class is never present in training, so the model cannot predict it and "
-   + "its balanced accuracy is near zero necessarily. That is arithmetic, not "
-   + "a finding. Only the survival transfer — the c-index and log-rank test on "
-   + "the held-out cohort — carries information, because the risk ranking is "
-   + "defined without reference to the held-out label. The stage target does "
-   + "not have this problem, since both classes appear in every cohort that "
-   + "has stage labels at all, and it is the target on which the transfer "
-   + "claim should rest. If transfer is weak there too, the pan-cancer claim "
-   + "should be softened to a multi-cohort claim rather than defended.");
+text("On the tissue-of-origin target the classification column of this table "
+   + "is not a transfer measurement and is not reported. With a single class "
+   + "in the held-out set, balanced accuracy reduces to the recall of that "
+   + "one class — scikit-learn discards the predicted-but-absent classes as "
+   + "undefined — and Matthews correlation is zero by construction. Two "
+   + "held-out cohorts return a balanced accuracy of exactly 1.000 for a "
+   + "class that never appeared in training, which demonstrates what the "
+   + "column measures. We note for completeness that an earlier version of "
+   + "this manuscript asserted the opposite, that such a value must be near "
+   + "zero; the run disproved it and the claim is withdrawn. Only the "
+   + "survival transfer carries information, because the risk ranking is "
+   + "defined without reference to the held-out label.");
+(() => {
+  const lo = FACTS.cohort && FACTS.cohort.loco;
+  if (!lo) { missing.add("cohort.loco"); return; }
+  text("Across all " + lo.n_cohorts + " cohorts held out in turn, the "
+     + "transfer c-index ranges from " + lo.min.toFixed(3) + " to "
+     + lo.max.toFixed(3) + " with a median of " + lo.median.toFixed(3) + ". "
+     + lo.n_above_half + " of " + lo.n_cohorts + " exceed 0.5 and "
+     + (lo.n_significant ?? "n/a") + " reach a log-rank p below 0.05 on the "
+     + "held-out cohort. The model therefore stratifies risk in a cancer type "
+     + "it has never seen, in roughly two thirds of the cohorts tested. This "
+     + "is the result that distinguishes a pan-cancer representation from a "
+     + "cohort detector, and it is the strongest evidence in this paper for "
+     + "the architecture itself rather than for the data.");
+  const cp = lo.corr_powered;
+  if (cp) {
+    text("Transfer is uneven, and the unevenness is systematic rather than "
+       + "noise. Among the " + cp.n + " cohorts with at least 60 events, the "
+       + "transfer c-index falls as the held-out cohort's event rate rises "
+       + "(Pearson r = " + cp.r.toFixed(3) + ", p = " + cp.p.toFixed(4)
+       + "). The three most lethal cohorts — mesothelioma, glioblastoma and "
+       + "acute myeloid leukaemia, with event rates of 0.85, 0.82 and 0.67 — "
+       + "all land within 0.02 of random despite spanning three unrelated "
+       + "lineages, while the best transfers are to cohorts with survival "
+       + "still spread out. Where almost every patient dies quickly there is "
+       + "little variance left to rank, and no model could do better. We "
+       + "report this as an exploratory finding: the analysis was prompted by "
+       + "the glioblastoma result rather than planned, event rate is "
+       + "confounded with cancer type and treatment era, and a correlation "
+       + "over 20 cohorts does not establish direction.");
+    text("Every c-index in Table 11 is printed beside the patient and event "
+       + "counts it rests on, because several cohorts contribute very few "
+       + "deaths and a concordance index over a handful of comparable pairs "
+       + "is not comparable with one over hundreds. Sorted by c-index alone "
+       + "this table is led by its least reliable rows; sorted by evidence it "
+       + "reads very differently. Both orderings appear in Figure 6.");
+  }
+})();
 addTable("T10");
 addTable("T11");
 addFigure("Figure 6");

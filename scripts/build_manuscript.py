@@ -229,12 +229,106 @@ def collect_facts(targets: Dict[str, str]) -> Dict[str, dict]:
                     for m in d.index}
                 f["paired"] = p
 
+        # ---- ablation, from table 5 --------------------------------------- #
+        t5 = os.path.join(runs, "table5_ablation.csv")
+        if os.path.exists(t5):
+            d = pd.read_csv(t5, index_col=0)
+            if "full" in d.index and "balanced_accuracy" in d.columns:
+                base = float(d.at["full", "balanced_accuracy"])
+                arms = {}
+                for v in d.index:
+                    if v == "full":
+                        continue
+                    arms[str(v)] = {
+                        "bacc": float(d.at[v, "balanced_accuracy"]),
+                        "delta": float(d.at[v, "balanced_accuracy"]) - base}
+                f["ablation"] = {
+                    "full_bacc": base,
+                    "n_arms": len(arms),
+                    "arms": arms,
+                    # 0.01 is the measured run-to-run spread; an arm inside it
+                    # is not an effect and the prose must not call it one.
+                    "outside_floor": sorted(
+                        [k for k, v in arms.items() if abs(v["delta"]) > 0.01],
+                        key=lambda k: arms[k]["delta"]),
+                    "inside_floor": sorted(
+                        [k for k, v in arms.items() if abs(v["delta"]) <= 0.01],
+                        key=lambda k: arms[k]["delta"])}
+
+        # ---- leave-one-cancer-out, from table 6 --------------------------- #
+        t6 = os.path.join(runs, "table6_loco.csv")
+        if os.path.exists(t6):
+            d = pd.read_csv(t6, index_col=0)
+            if "c_index" in d.columns:
+                ci = d["c_index"].dropna()
+                lo = {"n_cohorts": int(len(ci)),
+                      "min": float(ci.min()), "max": float(ci.max()),
+                      "median": float(ci.median()),
+                      "n_above_half": int((ci > 0.5).sum())}
+                if "logrank_p" in d.columns:
+                    lo["n_significant"] = int(
+                        (d["logrank_p"].dropna() < 0.05).sum())
+                # The relationship the discussion reports, computed here so
+                # the prose cannot quote a coefficient that drifted.
+                t1p = os.path.join(runs, "table1_cohorts.csv")
+                if os.path.exists(t1p):
+                    c1 = pd.read_csv(t1p, index_col=0)
+                    j = d.join(c1[["events", "event_rate"]], how="inner")
+                    j = j.dropna(subset=["c_index", "event_rate"])
+                    for label, thr in (("all", 0), ("powered", 60)):
+                        sub = j[j["events"] >= thr]
+                        if len(sub) >= 4:
+                            try:
+                                from scipy import stats as _st
+                                r, p = _st.pearsonr(sub["event_rate"],
+                                                    sub["c_index"])
+                                lo[f"corr_{label}"] = {
+                                    "n": int(len(sub)), "r": float(r),
+                                    "p": float(p)}
+                            except Exception:
+                                pass
+                f["loco"] = lo
+
+        # ---- sample-size curve, from table S3 ----------------------------- #
+        ts3 = os.path.join(runs, "tableS3_sample_size.csv")
+        if os.path.exists(ts3):
+            d = pd.read_csv(ts3, index_col=0)
+            cols = ("test_balanced_accuracy", "test_c_index")
+            if all(c in d.columns for c in cols) and len(d) >= 2:
+                a, b = d.iloc[0], d.iloc[-1]
+                f["sample_size"] = {
+                    "n_points": int(len(d)),
+                    "n_min": int(d.index[0]), "n_max": int(d.index[-1]),
+                    "bacc_min": float(a[cols[0]]),
+                    "bacc_max": float(b[cols[0]]),
+                    "bacc_gain": float(b[cols[0]] - a[cols[0]]),
+                    "cindex_min": float(a[cols[1]]),
+                    "cindex_max": float(b[cols[1]]),
+                    "cindex_gain": float(b[cols[1]] - a[cols[1]])}
+                if "train_c_index" in d.columns:
+                    f["sample_size"]["train_cindex_flat"] = [
+                        float(x) for x in d["train_c_index"]]
+
         # ---- the leakage control, from the permutation table ------------- #
         tp = os.path.join(runs, "tableS2_permutation_test.csv")
         if os.path.exists(tp):
             d = pd.read_csv(tp, index_col=0)
             f["permutation"] = {"rows": int(len(d)),
                                 "columns": list(map(str, d.columns))}
+            # The values themselves, so the prose can state where the null
+            # actually landed rather than telling the reader to go and look.
+            need = {"observed", "null_mean", "null_sd", "n_permutations"}
+            if need.issubset(set(d.columns)):
+                pv = {}
+                for key, row in (("bacc", "balanced_accuracy"),
+                                 ("auroc", "auroc"), ("cindex", "c_index")):
+                    if row in d.index:
+                        pv[key] = {"obs": float(d.at[row, "observed"]),
+                                   "mean": float(d.at[row, "null_mean"]),
+                                   "sd": float(d.at[row, "null_sd"])}
+                if pv:
+                    pv["n"] = int(d["n_permutations"].dropna().iloc[0])
+                    f["permutation_values"] = pv
 
         facts[target] = f
     return facts
