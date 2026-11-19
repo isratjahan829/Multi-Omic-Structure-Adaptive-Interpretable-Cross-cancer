@@ -51,6 +51,21 @@ molecular-over-clinical prognostic gain and the audited comparison protocol,
 not a performance claim for the architecture. Anyone building on this should
 start from that, not from the abstract of a paper that says otherwise.
 
+CHECKING THAT THIS FILE WORKS, IN UNDER TWO MINUTES
+---------------------------------------------------
+A full-scale fit on 10,953 patients takes tens of minutes, so a quick check
+must restrict the cohorts rather than the genes or epochs -- cutting those
+alone does not make the run short enough to watch:
+
+    python MOSAIC_GNN_complete.py train --root ./data_pan --target cohort         --cohorts ACC,CHOL --max-genes 20 --epochs 1 --folds 2 --out /tmp/chk
+
+That finishes in about a minute and should leave `cohort_results.json` with
+`"complete": true` and six fold checkpoints in /tmp/chk. The metrics it
+prints are meaningless -- 128 patients, 20 genes, one epoch -- and prove only
+that the embedded package, the CLI, the data path and the training loop all
+work. Check the FILES, not the exit code: an exit code of 0 from a run that
+was cut short says nothing.
+
 REQUIREMENTS
 ------------
     torch >= 2.0, numpy, pandas, scikit-learn, scipy, lifelines, pyarrow
