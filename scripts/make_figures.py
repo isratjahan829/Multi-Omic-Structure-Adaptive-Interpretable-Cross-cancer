@@ -28,6 +28,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 import matplotlib
@@ -336,6 +337,76 @@ def fig_ablation(abl: dict, out: str) -> str:
     return out
 
 
+def fig_loco(loco: dict, t1: pd.DataFrame, out: str) -> str:
+    """4.8 Leave-one-cancer-out survival transfer.
+
+    Only the survival column is drawn. The classification column is a
+    single-class metric and is not a transfer measurement -- see Section 4.6.
+    """
+    rows = []
+    for name, r in loco.items():
+        if name not in t1.index:
+            continue
+        rows.append((name, float(r["c_index"]), float(r["logrank_p"]),
+                     int(t1.at[name, "events"]),
+                     float(t1.at[name, "event_rate"])))
+    if not rows:
+        return ""
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 6.2),
+                             gridspec_kw={"width_ratios": [1.25, 1.0]})
+
+    # (a) every cohort, ordered, with the evidence behind it visible.
+    rows.sort(key=lambda r: r[1])
+    ax = axes[0]
+    # Two colours by whether the row is powered enough to read, which is the
+    # distinction the text makes and the one a reader needs at a glance.
+    colors = [C1 if r[3] >= 60 else MUTED for r in rows]
+    ax.barh(range(len(rows)), [r[1] for r in rows], color=colors, height=0.72)
+    ax.axvline(0.5, color=INK2, linewidth=1.4, zorder=4)
+    ax.text(0.5, len(rows) - 0.2, " 0.5 = random", fontsize=7.5, color=INK2,
+            va="top")
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([f"{r[0]}  ({r[3]})" for r in rows], fontsize=7)
+    ax.set_xlabel("transfer C-index on the held-out cohort")
+    ax.set_xlim(0, 1.0)
+    ax.set_title("(a) Transfer by cohort, with event count")
+    ax.grid(axis="y", visible=False)
+    from matplotlib.patches import Patch
+    ax.legend(handles=[Patch(facecolor=C1, label="≥ 60 events"),
+                       Patch(facecolor=MUTED, label="< 60 events")],
+              loc="lower right")
+    tidy(ax)
+
+    # (b) the relationship the text reports.
+    ax = axes[1]
+    big = [r for r in rows if r[3] >= 60]
+    small = [r for r in rows if r[3] < 60]
+    ax.scatter([r[4] for r in small], [r[1] for r in small], s=26,
+               color=MUTED, edgecolor="white", linewidth=0.8, zorder=3,
+               label="< 60 events")
+    ax.scatter([r[4] for r in big], [r[1] for r in big], s=42, color=C1,
+               edgecolor="white", linewidth=0.9, zorder=4,
+               label="≥ 60 events")
+    if len(big) >= 3:
+        xs = np.array([r[4] for r in big]); ys = np.array([r[1] for r in big])
+        b, a = np.polyfit(xs, ys, 1)
+        gx = np.linspace(xs.min(), xs.max(), 20)
+        ax.plot(gx, a + b * gx, color=C2, linewidth=2, zorder=5)
+    for r in big:            # relief rule: label the extremes, not every point
+        if r[4] > 0.6 or r[1] > 0.70:
+            ax.annotate(r[0], (r[4], r[1]), textcoords="offset points",
+                        xytext=(5, 3), fontsize=7, color=INK2)
+    ax.axhline(0.5, color=INK2, linewidth=1)
+    ax.set_xlabel("event rate of the held-out cohort")
+    ax.set_ylabel("transfer C-index")
+    ax.set_title("(b) Transfer falls as the cohort's event rate rises")
+    ax.legend(loc="upper right")
+    tidy(ax)
+
+    fig.tight_layout(); fig.savefig(out); plt.close(fig)
+    return out
+
+
 def fig_interpretation(genes: pd.DataFrame, mods: Optional[pd.DataFrame],
                        out: str) -> str:
     """4.9 Interpretation: attribution by gene, by module, and by omic block."""
@@ -451,6 +522,12 @@ def main() -> None:
         record("4.7 ablation", fig_ablation(abl, f"{O}/fig5_ablation.png"))
     else:
         missing.append("4.7 ablation")
+
+    loco = read_json(f"{R}/{args.tag}_loco.json")
+    if loco and t1 is not None:
+        record("4.8 LOCO transfer", fig_loco(loco, t1, f"{O}/fig6_loco.png"))
+    else:
+        missing.append("4.8 LOCO transfer")
 
     genes = read_csv(f"{R}/table7_gene_importance.csv", index_col=0)
     mods = read_csv(f"{R}/table8_module_importance.csv", index_col=0)

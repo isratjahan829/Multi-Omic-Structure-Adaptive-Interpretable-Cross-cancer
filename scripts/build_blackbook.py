@@ -966,7 +966,11 @@ def main() -> None:
         "image8.png": f"{args.figures}/_notrun_samplesize.png",
         "image9.png": f"{args.figures}/fig4_comparison.png",
         "image10.png": f"{args.figures}/fig5_ablation.png",
-        "image11.png": f"{args.figures}/_notrun_loco.png",
+        # Real LOCO figure once the run has produced one; the explicit
+        # "not run" panel only while it has not.
+        "image11.png": (f"{args.figures}/fig6_loco.png"
+                        if os.path.isfile(f"{args.figures}/fig6_loco.png")
+                        else f"{args.figures}/_notrun_loco.png"),
         "image12.png": f"{args.figures}/fig7_interpretation.png",
     }
     swapped, absent = 0, []
