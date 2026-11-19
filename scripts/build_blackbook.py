@@ -963,7 +963,9 @@ def main() -> None:
         "image5.png": f"{args.figures}/fig2_risk.png",
         "image6.png": f"{args.figures}/fig3_classification.png",
         "image7.png": f"{args.figures}/figS1_learning_curves.png",
-        "image8.png": f"{args.figures}/_notrun_samplesize.png",
+        "image8.png": (f"{args.figures}/figS2_sample_size.png"
+                       if os.path.isfile(f"{args.figures}/figS2_sample_size.png")
+                       else f"{args.figures}/_notrun_samplesize.png"),
         "image9.png": f"{args.figures}/fig4_comparison.png",
         "image10.png": f"{args.figures}/fig5_ablation.png",
         # Real LOCO figure once the run has produced one; the explicit

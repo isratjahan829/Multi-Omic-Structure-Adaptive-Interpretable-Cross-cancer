@@ -337,6 +337,45 @@ def fig_ablation(abl: dict, out: str) -> str:
     return out
 
 
+def fig_samplesize(ss: pd.DataFrame, out: str) -> str:
+    """4.5 Held-out performance against training-set size.
+
+    Train and test are drawn on each panel, because the interesting feature
+    is how the gap closes, not the test curve alone.
+    """
+    x = ss.index.astype(float)
+    pairs = [("balanced accuracy", "train_balanced_accuracy",
+              "test_balanced_accuracy"),
+             ("C-index", "train_c_index", "test_c_index")]
+    pairs = [p for p in pairs if p[1] in ss.columns and p[2] in ss.columns]
+    if not pairs:
+        return ""
+    fig, axes = plt.subplots(1, len(pairs), figsize=(6.6 * len(pairs), 4.6))
+    if len(pairs) == 1:
+        axes = [axes]
+    for ax, (label, tr, te) in zip(axes, pairs):
+        ax.plot(x, ss[tr].astype(float), color=C2, linewidth=2,
+                marker="o", markersize=5, label="training")
+        ax.plot(x, ss[te].astype(float), color=C1, linewidth=2,
+                marker="o", markersize=5, label="held-out")
+        # Direct-label the endpoints rather than every point.
+        ax.annotate(f"{float(ss[te].iloc[-1]):.3f}", (x[-1], ss[te].iloc[-1]),
+                    textcoords="offset points", xytext=(-6, -14),
+                    fontsize=8, color=C1, fontweight="bold")
+        ax.annotate(f"{float(ss[te].iloc[0]):.3f}", (x[0], ss[te].iloc[0]),
+                    textcoords="offset points", xytext=(2, -14),
+                    fontsize=8, color=C1)
+        ax.set_xlabel("training patients")
+        ax.set_ylabel(label)
+        ax.set_title(label)
+        ax.legend()
+        tidy(ax)
+    fig.suptitle("Held-out performance against training-set size",
+                 fontsize=10, fontweight="bold", color=INK, y=1.02)
+    fig.tight_layout(); fig.savefig(out); plt.close(fig)
+    return out
+
+
 def fig_loco(loco: dict, t1: pd.DataFrame, out: str) -> str:
     """4.8 Leave-one-cancer-out survival transfer.
 
@@ -522,6 +561,13 @@ def main() -> None:
         record("4.7 ablation", fig_ablation(abl, f"{O}/fig5_ablation.png"))
     else:
         missing.append("4.7 ablation")
+
+    ss = read_csv(f"{R}/tableS3_sample_size.csv")
+    if ss is not None:
+        record("4.5 sample size",
+               fig_samplesize(ss, f"{O}/figS2_sample_size.png"))
+    else:
+        missing.append("4.5 sample size")
 
     loco = read_json(f"{R}/{args.tag}_loco.json")
     if loco and t1 is not None:

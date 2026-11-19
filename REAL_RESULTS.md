@@ -735,7 +735,12 @@ Survival transfer only. The classification columns are omitted deliberately: wit
 
 ### Sample-size curve
 
-_Not available: the run that produces this table did not complete._
+|   n_train |   train_balanced_accuracy |   train_c_index |   test_balanced_accuracy |   test_c_index |   fraction |
+|----------:|--------------------------:|----------------:|-------------------------:|---------------:|-----------:|
+|       912 |                    0.4982 |          0.7638 |                   0.4185 |         0.7143 |       0.25 |
+|      1825 |                    0.5915 |          0.7647 |                   0.5143 |         0.728  |       0.5  |
+|      2737 |                    0.6132 |          0.7643 |                   0.5769 |         0.7352 |       0.75 |
+|      3650 |                    0.6259 |          0.7618 |                   0.5939 |         0.7379 |       1    |
 
 ### Capacity
 
