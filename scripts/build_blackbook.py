@@ -962,6 +962,20 @@ def main() -> None:
         ("as is typical for TCGA-style cohorts",
          "as is typical for TCGA cohorts"),
     ]
+    # Not a caption but a claim, and one that is now false in a way that
+    # contradicts Section 4.6. The synthetic cohorts had been constructed
+    # with matched size and event rates; the real ones range from 36 to
+    # 1,084 patients and from 0.02 to 0.851 in event rate, and that
+    # variation is exactly what the transfer analysis turns on.
+    sentence_fixes = [
+        ("The four synthetic cohorts were deliberately built with similar "
+         "size and event rates",
+         "The 32 real cohorts differ enormously in size and event rate -- "
+         "from 36 to 1,084 patients and from 0.02 to 0.851 deaths per "
+         "patient -- and that heterogeneity is a property of TCGA rather "
+         "than a design choice"),
+    ]
+    caption_fixes = caption_fixes + sentence_fixes
     fixed = 0
     for par in doc.paragraphs:
         t = par.text
