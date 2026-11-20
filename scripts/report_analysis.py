@@ -367,6 +367,52 @@ def per_class_derived(runs: str, n_total: Optional[float] = None) -> Optional[di
             }
 
 
+def class_names(runs: str) -> Optional[dict]:
+    """Recover which cohort each class index is, and verify the recovery.
+
+    The per-class export is indexed by the label encoder's integer class,
+    which is not readable. The encoder sorts its labels, so index i should be
+    the i-th cohort alphabetically. That is a guess until it is checked, so it
+    is checked: each class's support must equal that cohort's count in the
+    per-cohort export. The function returns the mapping together with how
+    many classes confirmed it, and the caller reports both rather than
+    assuming the mapping is right.
+    """
+    t1 = read_csv(os.path.join(runs, "table1_cohorts.csv"))
+    pc = per_class_derived(runs)
+    t2c = read_csv(os.path.join(runs, "table2c_per_cohort.csv"))
+    if not (t1 and pc):
+        return None
+    k1 = "cohort" if "cohort" in t1[0] else list(t1[0])[0]
+    names = sorted(r[k1] for r in t1)
+    if len(names) != pc["n_classes"]:
+        return {"mapping": None, "confirmed": 0, "contradicted": 0,
+                "unchecked": pc["n_classes"],
+                "reason": f"{len(names)} cohorts but {pc['n_classes']} "
+                          "classes, so the orders cannot correspond"}
+    counts = {}
+    if t2c:
+        key = list(t2c[0])[0]
+        counts = {r[key]: num(r.get("n")) for r in t2c}
+    mapping, confirmed, contradicted, unchecked = {}, 0, 0, 0
+    for i, row in enumerate(pc["rows"]):
+        name = names[i]
+        mapping[str(row["class"])] = name
+        n = counts.get(name)
+        if n is None:
+            unchecked += 1
+        elif abs((row["support"] or 0) - n) < 0.5:
+            confirmed += 1
+        else:
+            contradicted += 1
+    return {"mapping": (mapping if contradicted == 0 else None),
+            "confirmed": confirmed, "contradicted": contradicted,
+            "unchecked": unchecked, "n_classes": pc["n_classes"],
+            "reason": None if contradicted == 0 else
+                      f"{contradicted} classes contradict the alphabetical "
+                      "order, so the mapping is not reported"}
+
+
 def single_fold_panel(runs: str) -> Optional[Dict[str, float]]:
     rows = read_csv(os.path.join(runs, "table2_single_fold.csv"))
     if not rows:
@@ -885,6 +931,7 @@ def analyse(runs: str) -> dict:
         "panel": panel,
         "descriptives": cohort_descriptives(runs),
         "per_class": per_class_derived(runs),
+        "class_names": class_names(runs),
         "consistency": consistency_audit(runs),
         "gap": gap_derived(runs),
         "ranks": rank_table(runs, panel, metrics),

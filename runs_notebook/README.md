@@ -17,6 +17,19 @@ Earlier the notebook wrote into `runs/`, putting real reduced output in the
 same folder as synthetic fixtures. `scripts/build_notebook.py` now points at
 this directory instead, so provenance is readable from the path alone.
 
+## This directory is not what the notebook reports any more
+
+The notebook's **Section 2** reads `runs_pan_cohort/` and `runs_pan_stage/`
+and prints the manuscript tables directly, checking every number against
+`deliverables/manuscript_payload.json` as it goes. What lands here comes from
+the retraining sections that follow, which exist so a reader can watch the
+pipeline run and change something — not so their numbers can be quoted.
+
+The two were once the same thing, and that was the problem: the notebook
+printed only the reduced figures below while the report carried the full-run
+figures, so the two documents shared no number. `scripts/verify_consistency.py`
+now fails if that drift returns.
+
 ## What the reduction costs, measured at three gene budgets
 
 The shipped notebook runs at **60 genes, 3 epochs**. An earlier execution used

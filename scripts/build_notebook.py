@@ -1166,6 +1166,18 @@ cols = ["class", "support", "tp", "fp", "fn", "tn", "sensitivity",
         "sens_ci_low", "sens_ci_high", "specificity", "precision", "npv",
         "f1", "youden", "mcc", "mean_predicted_prob"]
 tbl = pd.DataFrame(pc["rows"])[cols]
+# The export indexes classes by integer. The label encoder sorts its labels,
+# so index i should be the i-th cohort alphabetically -- which is checked
+# against each cohort's count in the per-cohort export rather than assumed.
+cn = A["class_names"]
+if cn and cn["mapping"]:
+    tbl.insert(1, "cohort", [cn["mapping"][str(c)] for c in tbl["class"]])
+    print(f"class index -> cohort: confirmed for {cn['confirmed']} of "
+          f"{cn['n_classes']} classes, contradicted for "
+          f"{cn['contradicted']}, unchecked for {cn['unchecked']}")
+else:
+    print("class index -> cohort mapping not established:",
+          (cn or {}).get("reason", "no per-class export"))
 print(tbl.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
 print()
 print("macro over the per-class table:",

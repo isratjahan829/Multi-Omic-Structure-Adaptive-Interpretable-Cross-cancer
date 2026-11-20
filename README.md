@@ -293,12 +293,47 @@ If the gap is still too wide on your data, turn these knobs in order:
 
 ## 8. Reading the notebook and the run outputs
 
-`notebooks/mosaic_gnn.ipynb` runs the pipeline end to end on the real
-pan-cancer data. It is **not** the source of the manuscript numbers: each
-phase has its own budget so the notebook finishes in a sitting, and every
-cell prints the scope it actually used — a phase set to zero prints that it
-was skipped and why. The manuscript numbers come from the full schedule,
-`scripts/run_pan.sh`, and land in `runs_pan_cohort/` and `runs_pan_stage/`.
+`notebooks/mosaic_gnn.ipynb` has two halves and the difference between them
+matters more than anything else in this section.
+
+**Section 2 is the manuscript.** It reads the exports of the full runs —
+`runs_pan_cohort/` and `runs_pan_stage/` — and prints exactly the tables the
+project report contains: the metric panel for both targets, the reconstructed
+per-class contingency tables, the generalisation gap, the comparator panel
+with paired corrected tests, the ablation in noise-floor units, the
+permutation null, the sample-size fits, leave-one-cancer-out transfer and the
+interpretation. Those exports and `scripts/report_analysis.py` travel inside
+the notebook's embedded zip, so Section 2 reproduces anywhere, with no
+network call and nothing to attach. Its last cell checks every number against
+`deliverables/manuscript_payload.json`, prints PASS or FAIL per row, and
+raises if anything disagrees. **Quote from Section 2 and nowhere else.**
+
+**Sections 3 onward are a demonstration.** They retrain the model from
+scratch at a deliberately reduced configuration so the notebook finishes in a
+sitting: each phase has its own budget, and every cell prints the scope it
+actually used — a phase set to zero prints that it was skipped and why. A
+reduced run is a different experiment, so its numbers will not match
+Section 2 and must never be quoted as the project's results. A banner in the
+notebook says so at the point where the demonstration begins.
+
+That separation exists because it was once absent. The notebook used to
+retrain `stage_binary` at 60 genes and 3 epochs into `runs_notebook/` and
+print those figures as its only results, while the report was built from the
+full runs. Neither was dishonest on its own terms, and the two shared no
+number at all — which, to a reader, is indistinguishable from one of them
+being wrong.
+
+`scripts/verify_consistency.py` is the guard against that happening again. It
+compares the run exports, the payload, the text of the built `.docx` and the
+executed notebook's own output, and exits non-zero if any headline number is
+missing from one of them:
+
+```bash
+python scripts/verify_consistency.py       # 49 numeric + 6 structural checks
+```
+
+Run it before submitting either document. The manuscript numbers themselves
+come from the full schedule, `scripts/run_pan.sh`.
 
 Those budgets exist because `RUN_FULL = True` on this dataset expands to
 repeated cross-validation, 24 baselines on every fold, one full

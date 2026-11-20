@@ -1073,10 +1073,12 @@ def ch5(doc, x: F, n: N):
               "among the model's two highest-scoring classes.")
     rich(doc, [("Proper scoring and calibration. ", True),
                ("These three measure the probabilities rather than the "
-                "decisions, and on all three a lower value is better:",
-                False)])
-    formula(doc, "LogLoss = −(1/N) Σ_i log p̂_i,y_i,      "
-                 "Brier = (1/N) Σ_i Σ_k ( p̂_ik − 1[y_i=k] )²")
+                "decisions, and on all three a lower value is better. Write "
+                "q_ik for the probability the model gave patient i of "
+                "belonging to class k, and y_i for that patient's true "
+                "class:", False)])
+    formula(doc, "LogLoss = −(1/N) Σ_i log q_i,y_i,      "
+                 "Brier = (1/N) Σ_i Σ_k ( q_ik − 1[y_i=k] )²")
     formula(doc, "ECE = Σ_b (n_b/N) · | accuracy(b) − confidence(b) |,"
                  "      over equal-width confidence bins b")
     para(doc, "Expected calibration error is the one metric in the panel "
@@ -1084,7 +1086,7 @@ def ch5(doc, x: F, n: N):
               "everywhere else, which is why Section 6.16 is devoted to it. "
               "Predictive uncertainty is summarised by the entropy of the "
               "predicted distribution under Monte-Carlo dropout, "
-              "H(p̂) = −Σ_k p̂_k log p̂_k, reported in nats and also as a "
+              "H(q) = −Σ_k q_k log q_k, reported in nats and also as a "
               "fraction of its maximum ln K so that targets with different "
               "class counts can be compared.")
     rich(doc, [("Survival. ", True),
@@ -1124,7 +1126,7 @@ def ch5(doc, x: F, n: N):
          "alone makes a small effect measured precisely look like a large "
          "effect measured loosely."),
         ("Benjamini-Hochberg correction. ", "For m p-values sorted "
-         "ascending, q₍i₎ = min over j ≥ i of (p₍j₎·m/j), capped at one. "
+         "ascending, q(i) = min over j ≥ i of (p(j)·m/j), capped at one. "
          "This controls the expected proportion of false discoveries among "
          "the rejected hypotheses. Section 6.8 recomputes the procedure "
          "independently from the stored p-values as a check, and also "
@@ -1135,14 +1137,14 @@ def ch5(doc, x: F, n: N):
          "approximation because several classes have fewer than twenty "
          "members, where the normal interval can run outside [0,1]."),
         ("Pearson correlation with a Fisher z interval. ", "The "
-         "coefficient is r = Σ(x−x̄)(y−ȳ)/√(Σ(x−x̄)²Σ(y−ȳ)²); its "
+         "coefficient is r = Σ(x−x-bar)(y−y-bar)/√(Σ(x−x-bar)²Σ(y−y-bar)²); its "
          "two-sided p-value comes from t = r√((n−2)/(1−r²)) on n−2 "
          "degrees of freedom; and its interval is obtained by "
          "transforming z = artanh r, SE = 1/√(n−3), and mapping the "
          "interval back with the hyperbolic tangent. Sections 6.13 and "
          "6.14 report all three."),
         ("Least squares on a logarithmic axis. ", "The sample-size curves "
-         "are fitted as y = a + b·log₂ n, so that b reads as the change "
+         "are fitted as y = a + b·log2 n, so that b reads as the change "
          "per doubling of the training set, with "
          "R² = 1 − SS_residual/SS_total."),
     ])
@@ -2144,13 +2146,33 @@ def ch6_consistency(doc, x: F, n: N, A: dict, S: dict):
                   "computed on a different split — that most often "
                   "inflates a reported result.", space_before=8)
     if pc:
+        cn = A.get("class_names") or {}
+        cmap = cn.get("mapping") or {}
+        if cmap:
+            para(doc, "The export indexes these classes by integer, which "
+                      "is not readable, so the cohort each index stands for "
+                      "is recovered and then checked rather than assumed. "
+                      "The label encoder sorts its labels, so index i should "
+                      "be the i-th cohort alphabetically; if that is right, "
+                      "each class's support must equal that cohort's count "
+                      "in the per-cohort export. It does for "
+                      f"{iv(cn.get('confirmed'))} of "
+                      f"{iv(cn.get('n_classes'))} classes and contradicts it "
+                      f"for {iv(cn.get('contradicted'))}; the remaining "
+                      f"{iv(cn.get('unchecked'))} could not be checked "
+                      "because that cohort has no row in the per-cohort "
+                      "export, being too small to score there. The cohort "
+                      "names below therefore rest on a verified "
+                      "correspondence, not on a convention assumed to hold.")
         hdr = ["Class", "n_c", "TP", "FP", "FN", "TN", "Sens",
                "Sens 95 % CI", "Spec", "Prec", "NPV", "F1", "J", "MCC_c",
-               "Mean p̂"]
+               "Mean prob."]
         rows = []
         for r in pc["rows"]:
+            tag = cmap.get(str(r["class"]))
             rows.append([
-                str(r["class"]), iv(r["support"]), iv(r["tp"]), iv(r["fp"]),
+                (tag or str(r["class"])), iv(r["support"]), iv(r["tp"]),
+                iv(r["fp"]),
                 iv(r["fn"]), iv(r["tn"]), fv(r["sensitivity"]),
                 f"{fv(r['sens_ci_low'],2)}–{fv(r['sens_ci_high'],2)}",
                 fv(r["specificity"]), fv(r["precision"]), fv(r["npv"]),
@@ -2162,10 +2184,13 @@ def ch6_consistency(doc, x: F, n: N, A: dict, S: dict):
                    "TP to TN are counts; Sens, Spec, Prec, NPV and F1 are "
                    "the usual rates; J is Youden's index; MCC_c is the "
                    "per-class Matthews correlation; the last column is the "
-                   "mean probability the model assigned to that class.",
-                   hdr, rows,
-                   widths=[0.42, 0.37, 0.37, 0.37, 0.37, 0.45, 0.42, 0.78,
-                           0.42, 0.42, 0.42, 0.42, 0.42, 0.45, 0.42],
+                   "mean probability the model assigned to that class. "
+                   "Sorted by support, so the effect of class size on every "
+                   "other column can be read down the page.",
+                   hdr, sorted(rows, key=lambda r: -float(
+                       str(r[1]).replace(",", "") or 0)),
+                   widths=[0.68, 0.37, 0.35, 0.35, 0.35, 0.44, 0.4, 0.72,
+                           0.4, 0.4, 0.4, 0.4, 0.4, 0.42, 0.4],
                    font=6.5)
         m = pc["macro"]
         para(doc, "Macro averages over the per-class table: sensitivity "
@@ -2383,8 +2408,8 @@ def ch6_paired(doc, x: F, n: N, A: dict):
               "uncorrected testing would manufacture significance. The run "
               "applied the Benjamini-Hochberg step-up procedure within each "
               "metric:")
-    formula(doc, "q₍i₎ = min over j ≥ i of  ( p₍j₎ · m / j ),   "
-                 "p₍1₎ ≤ … ≤ p₍m₎")
+    formula(doc, "q(i) = min over j ≥ i of  ( p(j) · m / j ),   "
+                 "p(1) ≤ … ≤ p(m)")
     if pr:
         hdr = ["Model", "Δ BAcc", "SE", "z", "95 % CI", "p", "q",
                "Δ C-idx", "SE", "z", "95 % CI", "p", "q"]
@@ -2719,7 +2744,7 @@ def ch6_samplesize(doc, x: F, n: N, A: dict, figdir: str):
               "statement, each curve is fitted by ordinary least squares "
               "against the base-two logarithm of the training-set size, so "
               "that the slope reads as the gain per doubling of the data:")
-    formula(doc, "y = a + b · log₂ n,      "
+    formula(doc, "y = a + b · log2 n,      "
                  "R² = 1 − SS_residual / SS_total")
     if ss:
         rows = [[iv(r["n_train"]), fv(r["log2n"], 2), fv(r["fraction"], 2),
@@ -2732,7 +2757,7 @@ def ch6_samplesize(doc, x: F, n: N, A: dict, figdir: str):
                    "are train minus test at that size, so the trend in "
                    "overfitting can be read as well as the trend in "
                    "performance.",
-                   ["n train", "log₂ n", "Fraction", "Train BAcc",
+                   ["n train", "log2 n", "Fraction", "Train BAcc",
                     "Test BAcc", "Gap", "Train C-idx", "Test C-idx", "Gap"],
                    rows,
                    widths=[0.68, 0.6, 0.72, 0.82, 0.78, 0.6, 0.85, 0.78,
@@ -2743,7 +2768,7 @@ def ch6_samplesize(doc, x: F, n: N, A: dict, figdir: str):
                 ss.get("train_balanced_accuracy")),
                ("Train C-index", ss.get("train_c_index"))]
         rows_table(doc, n.t(),
-                   "Least-squares fits of each curve on log₂ n. The slope "
+                   "Least-squares fits of each curve on log2 n. The slope "
                    "is the change in the metric per doubling of the "
                    "training set; R² says how well a straight line in "
                    "log n describes the four points.",
@@ -3118,7 +3143,7 @@ def ch6_uncertainty(doc, x: F, n: N, A: dict, S: dict, figdir: str):
               "entropy summarises how spread the predicted distribution is "
               "under Monte-Carlo dropout:")
     formula(doc, "ECE = Σ_b (n_b / N) · | accuracy(b) − confidence(b) |,"
-                 "      H(p̂) = − Σ_k p̂_k log p̂_k")
+                 "      H(q) = − Σ_k q_k log q_k")
     import math as _m
     k_cohort = x.g("cohort", "n_cohorts") or 32
     hmax = _m.log(float(k_cohort))
@@ -3268,7 +3293,9 @@ def ch6_stage(doc, x: F, n: N, S: dict, runs_stage: str):
                   "neither is wrong, but a reader comparing them without "
                   "this sentence would think one of them was.")
     if pc:
-        rows = [[str(r["class"]), iv(r["support"]), iv(r["tp"]),
+        STAGE = {"0": "early (I–II)", "1": "late (III–IV)"}
+        rows = [[STAGE.get(str(r["class"]), str(r["class"])),
+                 iv(r["support"]), iv(r["tp"]),
                  iv(r["fp"]), iv(r["fn"]), iv(r["tn"]),
                  fv(r["sensitivity"]),
                  f"{fv(r['sens_ci_low'],3)}–{fv(r['sens_ci_high'],3)}",
@@ -3282,9 +3309,9 @@ def ch6_stage(doc, x: F, n: N, S: dict, runs_stage: str):
                    "Class 0 is early stage and class 1 is late stage.",
                    ["Class", "n_c", "TP", "FP", "FN", "TN", "Sens",
                     "Sens 95 % CI", "Spec", "Prec", "NPV", "F1", "J",
-                    "MCC_c", "Mean p̂"], rows,
-                   widths=[0.42, 0.42, 0.4, 0.4, 0.4, 0.42, 0.42, 0.78,
-                           0.42, 0.42, 0.42, 0.4, 0.4, 0.45, 0.42],
+                    "MCC_c", "Mean prob."], rows,
+                   widths=[0.95, 0.4, 0.37, 0.37, 0.37, 0.42, 0.4, 0.72,
+                           0.4, 0.4, 0.4, 0.37, 0.37, 0.42, 0.4],
                    font=6.5)
         if con:
             para(doc, "The same internal consistency audit was run on this "
