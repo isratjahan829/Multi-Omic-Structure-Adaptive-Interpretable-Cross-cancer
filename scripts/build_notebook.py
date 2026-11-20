@@ -1506,10 +1506,13 @@ print(f"median {an['median']:.4f} over {an['n']} cohorts; "
 print("No leave-one-cancer-out classification number is reported as a "
       "result anywhere, in this notebook or in the report. The survival "
       "column above comes from the risk head, which never references the "
-      "class label space; transfer is also much WORSE than the pooled fold "
-      f"({lc['median']:.4f} vs {A['panel']['c_index']:.4f}), which is what "
-      "generalisation loss looks like and the opposite of leakage. See "
-      "Section 6.14.1 of the report for the full argument.")
+      "class label space. Transfer is also WORSE on a like-for-like "
+      "comparison: against the within-cohort C-index on the ordinary "
+      f"held-out fold (median {A['per_cohort']['c_index']['median']:.4f}), "
+      f"transfer reaches {lc['median']:.4f}. The pooled figure "
+      f"({A['panel']['c_index']:.4f}) ranks across cohorts and is an easier "
+      "problem, so it is not the right baseline. See Section 6.14.1 of the "
+      "report for the full argument.")
 """)
 
 rmd(r"""

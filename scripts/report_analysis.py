@@ -48,6 +48,33 @@ NOISE_FLOOR = 0.01               # measured run-to-run spread, Section 6.8
 # --------------------------------------------------------------------------- #
 # Small helpers
 # --------------------------------------------------------------------------- #
+def paired_bootstrap_resamples() -> Optional[int]:
+    """How many resamples the paired test actually used.
+
+    Read from the implementation's own signature rather than written down
+    here, because a p-value of zero means only "no resample fell the other
+    way" and the smallest reportable value is 2/B. If the package cannot be
+    imported the caller says "the implementation's default" instead of
+    inventing a number.
+    """
+    try:
+        import inspect
+        import sys
+
+        # Running as `python scripts/report_analysis.py` puts scripts/ on the
+        # path but not the repository root, so `import mosaic` would fail
+        # here and the caller would silently lose the number.
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if root not in sys.path:
+            sys.path.append(root)
+        from mosaic.metrics import paired_bootstrap_test
+        v = inspect.signature(paired_bootstrap_test).parameters["n_boot"]
+        return int(v.default) if v.default is not inspect.Parameter.empty \
+            else None
+    except Exception:
+        return None
+
+
 def read_csv(path: str) -> Optional[List[dict]]:
     if not os.path.isfile(path):
         return None
@@ -608,6 +635,7 @@ def paired_derived(runs: str) -> Optional[dict]:
             if (stored < 0.05) != (q < 0.05):
                 flips.append((out[i]["model"], key, stored, q))
     return {"rows": out, "family_sizes": sizes,
+            "n_resamples": paired_bootstrap_resamples(),
             "q_max_abs_diff": worst,
             "pooled_family_size": len(pooled_p),
             "pooled_q_max_abs_diff": pooled_worst,

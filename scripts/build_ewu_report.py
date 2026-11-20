@@ -1796,6 +1796,23 @@ def fv(v, d=3, dash="—"):
     return f"{f:.{d}f}"
 
 
+def pv(v, floor=None, dash="—"):
+    """Format a p- or q-value. Zero means "below the resolution", not zero."""
+    if v is None:
+        return dash
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f != f:
+        return dash
+    if f <= 0:
+        return f"< {floor:.4f}".rstrip("0") if floor else "< resolution"
+    if f < 0.0001:
+        return f"{f:.1e}"
+    return f"{f:.4f}"
+
+
 def iv(v, dash="—"):
     if v is None:
         return dash
@@ -1849,10 +1866,24 @@ def wide_table(doc, label: str, cap: str, header, rows, groups,
     each part can be read on its own.
     """
     letters = "abcdefghij"
-    idx = {name: i for i, name in enumerate(header)}
-    single = len([g for g in groups if any(c in idx for c in g)]) == 1
-    for j, group in enumerate(groups):
-        keep = [idx[c] for c in group if c in idx]
+    # Resolve column names to positions by consuming each occurrence left to
+    # right, because a header may legitimately repeat a name -- the paired
+    # test table carries SE, z, CI, p and q once per metric. A plain
+    # name-to-index dict would keep only the last occurrence and silently
+    # fill the first group with the second group's numbers.
+    used = set()
+    resolved = []
+    for group in groups:
+        keep = []
+        for name in group:
+            for i, head_name in enumerate(header):
+                if i not in used and head_name == name:
+                    used.add(i)
+                    keep.append(i)
+                    break
+        resolved.append(keep)
+    single = len([k for k in resolved if k]) == 1
+    for j, keep in enumerate(resolved):
         if not keep:
             continue
         lbl = label if single else f"{label}({letters[j]})"
@@ -2421,6 +2452,16 @@ def ch6_paired(doc, x: F, n: N, A: dict):
     formula(doc, "q(i) = min over j ≥ i of  ( p(j) · m / j ),   "
                  "p(1) ≤ … ≤ p(m)")
     if pr:
+        qf = (2.0 / pr["n_resamples"]) if pr.get("n_resamples") else None
+        if qf:
+            para(doc, "One convention for reading the table: the bootstrap "
+                      f"draws {iv(pr['n_resamples'])} resamples and the "
+                      "two-sided p-value is twice the smaller tail "
+                      "fraction, so the smallest value it can return other "
+                      f"than zero is {fv(qf, 4)}. Where no resample fell on "
+                      "the other side of zero the entry is written as an "
+                      "upper bound rather than as 0.0000, which would claim "
+                      "a precision the procedure does not have.")
         hdr = ["Model", "Δ BAcc", "SE", "z", "95 % CI", "p", "q",
                "Δ C-idx", "SE", "z", "95 % CI", "p", "q"]
         rows = []
@@ -2429,15 +2470,16 @@ def ch6_paired(doc, x: F, n: N, A: dict):
                 r["model"],
                 fv(r.get("bacc_delta"), 4), fv(r.get("bacc_se"), 4),
                 fv(r.get("bacc_z"), 2),
-                (f"{fv(r.get('bacc_ci_low'),3)}–{fv(r.get('bacc_ci_high'),3)}"
+                (f"{fv(r.get('bacc_ci_low'),3)} to "
+                 f"{fv(r.get('bacc_ci_high'),3)}"
                  if r.get("bacc_ci_low") is not None else "—"),
-                fv(r.get("bacc_p"), 3), fv(r.get("bacc_q"), 3),
+                pv(r.get("bacc_p"), qf), pv(r.get("bacc_q"), qf),
                 fv(r.get("cindex_delta"), 4), fv(r.get("cindex_se"), 4),
                 fv(r.get("cindex_z"), 2),
-                (f"{fv(r.get('cindex_ci_low'),3)}–"
+                (f"{fv(r.get('cindex_ci_low'),3)} to "
                  f"{fv(r.get('cindex_ci_high'),3)}"
                  if r.get("cindex_ci_low") is not None else "—"),
-                fv(r.get("cindex_p"), 3), fv(r.get("cindex_q"), 3)])
+                pv(r.get("cindex_p"), qf), pv(r.get("cindex_q"), qf)])
         wide_table(doc, n.t(),
                    "Paired bootstrap against MOSAIC-GNN on identical "
                    "held-out patients. Δ is MOSAIC-GNN minus the "
@@ -2451,7 +2493,7 @@ def ch6_paired(doc, x: F, n: N, A: dict):
                    part_caps=["Balanced accuracy.",
                               "Harrell's C-index. Only the models that "
                               "produce a risk score appear with values."],
-                   first_width=1.75, col_width=0.76, font=7.5)
+                   first_width=1.72, col_width=0.78, font=7.5)
         sizes = pr.get("family_sizes") or {}
         para(doc, "The correction was verified rather than trusted. "
                   "Recomputing the step-up procedure independently from the "
@@ -2526,6 +2568,8 @@ def ch6_gain(doc, x: F, n: N, A: dict, S: dict):
               "independent ways, on two independently fitted targets.")
     mgc, mgs = x.g("cohort", "molecular_gain"), x.g("stage_binary",
                                                     "molecular_gain")
+    nb = ((A.get("paired") or {}).get("n_resamples"))
+    qfloor = (2.0 / nb) if nb else None
     _CCO = "paired.models.cox_clinical_only.cindex_delta"
     _CCQ = "paired.models.cox_clinical_only.cindex_q"
     _CCL = "paired.models.cox_clinical_only.cindex_ci_low"
@@ -2562,9 +2606,18 @@ def ch6_gain(doc, x: F, n: N, A: dict, S: dict):
                      f"{fv(x.g('stage_binary', _CCL), 3)} to "
                      f"{fv(x.g('stage_binary', _CCH), 3)}"],
                     ["Corrected q-value of that difference",
-                     fv(x.g("cohort", _CCQ), 4),
-                     fv(x.g("stage_binary", _CCQ), 4)]],
+                     pv(x.g("cohort", _CCQ), qfloor),
+                     pv(x.g("stage_binary", _CCQ), qfloor)]],
                    widths=[3.0, 1.55, 1.75], font=9.0)
+        if nb:
+            para(doc, "The q-values are written as an upper bound rather "
+                      f"than as zero. The paired bootstrap draws {iv(nb)} "
+                      "resamples and its two-sided p-value is twice the "
+                      "smaller tail fraction, so when no resample falls on "
+                      "the other side of zero the p-value is not zero but "
+                      f"smaller than 2/{int(nb)} = {fv(qfloor, 4)}. Printing "
+                      "0.0000 would claim a precision the procedure cannot "
+                      "deliver.", size=10.5, space_before=6)
     para(doc, "Both measurements agree and they agree on both targets. "
               "Adding the molecular blocks to a penalised Cox model raises "
               f"the C-index by {fv((mgc or {}).get('delta'), 4)} on the "
@@ -2995,12 +3048,20 @@ def ch6_loco(doc, x: F, n: N, A: dict, figdir: str):
             ("A training-side leak would raise the survival column, and it "
              "is lower. ", "If the held-out cohort were somehow present in "
              "training, its survival ranking would be easier, not harder. "
-             "The median transfer C-index is "
-             + fv((lc or {}).get("median"), 4) + " against "
-             + fv((A.get("panel") or {}).get("c_index"), 4) + " on the "
-             "pooled held-out fold — transfer is substantially worse, which "
-             "is what genuine generalisation loss looks like and the "
-             "opposite of what leakage looks like."),
+             "The comparison has to be made carefully: the pooled "
+             "held-out C-index of "
+             + fv((A.get("panel") or {}).get("c_index"), 4) + " ranks "
+             "patients across cohorts, which is an easier problem than "
+             "ranking within one, so it is the wrong baseline here. The "
+             "right one is the within-cohort C-index on the ordinary "
+             "held-out fold, where the cohort was present in training: "
+             "median "
+             + fv(((A.get("per_cohort") or {}).get("c_index") or {})
+                  .get("median"), 4) + ". Transfer reaches "
+             + fv((lc or {}).get("median"), 4) + " against that, so it is "
+             "worse on a like-for-like comparison — which is what genuine "
+             "generalisation loss looks like and the opposite of what "
+             "leakage looks like."),
             ("The survival column has the structure of a real measurement. ",
              "It spans " + fv((lc or {}).get("min"), 3) + " to "
              + fv((lc or {}).get("max"), 3) + ", with "
@@ -3015,12 +3076,12 @@ def ch6_loco(doc, x: F, n: N, A: dict, figdir: str):
                   "reported, with the reasoning above stated so a reader "
                   "can weigh it, and it should be treated as provisional "
                   "until the classification path is debugged. Identifying "
-                  "the fault is listed in Section 8.3 as future work. It "
-                  "would have been easy to omit this subsection entirely, "
-                  "since the affected numbers are not reported anywhere; it "
-                  "is included because an examiner who recomputed the "
-                  "classification column would find it, and a reader is "
-                  "entitled to know that the authors found it first.")
+                  "the fault is listed in Section 8.3 as future work. The "
+                  "subsection is included rather than omitted because the "
+                  "column is in the exported table either way, so anyone "
+                  "who recomputes it will see this, and a caveat a reader "
+                  "discovers for themselves is worth less than one the "
+                  "report states.")
     para(doc, "The thirty-two log-rank tests are a family, so they are "
               "corrected the same way the model comparisons were. Both the "
               "raw p-value and the Benjamini-Hochberg q-value are given, "
