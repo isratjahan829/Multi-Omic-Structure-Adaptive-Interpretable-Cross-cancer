@@ -185,6 +185,7 @@ def main() -> int:
                     default=os.path.join(REPO, "runs_pan_stage"))
     ap.add_argument("--payload", default=os.path.join(
         REPO, "deliverables", "manuscript_payload.json"))
+    ap.add_argument("--figures", default=os.path.join(REPO, "figures"))
     ap.add_argument("--report", default=os.path.join(
         REPO, "deliverables", "CSE400B-MOSAIC-GNN-Report.docx"))
     ap.add_argument("--notebook", default=os.path.join(
@@ -368,6 +369,30 @@ def main() -> int:
                   "no combining marks or unverified maths symbols"
                   if not offenders else
                   "; ".join(f"{k} x{v}" for k, v in offenders.items())))
+
+    # A figure older than the run output it is drawn from is stale, and the
+    # document would show last week's picture beside this week's numbers.
+    newest_data, newest_name = 0.0, None
+    for folder in (a.runs, a.runs_stage):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if name.endswith(".csv"):
+                t = os.path.getmtime(os.path.join(folder, name))
+                if t > newest_data:
+                    newest_data, newest_name = t, name
+    stale_figs = []
+    if os.path.isdir(a.figures):
+        for name in sorted(os.listdir(a.figures)):
+            if not name.endswith(".png") or name.startswith("_notrun"):
+                continue
+            if os.path.getmtime(os.path.join(a.figures, name)) < newest_data:
+                stale_figs.append(name)
+    extra.append(("figures are newer than the run outputs",
+                  "PASS" if not stale_figs else "FAIL",
+                  f"all redrawn after {newest_name}" if not stale_figs
+                  else "older than " + str(newest_name) + ": "
+                       + ", ".join(stale_figs)))
 
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
