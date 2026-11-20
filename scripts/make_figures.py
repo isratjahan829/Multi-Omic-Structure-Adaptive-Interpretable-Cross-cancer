@@ -479,14 +479,23 @@ def fig_loco(loco: dict, t1: pd.DataFrame, out: str) -> str:
     # Two colours by whether the row is powered enough to read, which is the
     # distinction the text makes and the one a reader needs at a glance.
     colors = [C1 if r[3] >= 60 else MUTED for r in rows]
-    ax.barh(range(len(rows)), [r[1] for r in rows], color=colors, height=0.72)
+    # Dots, not bars. The C-index floor is 0.5, so a bar drawn from zero
+    # gives UVM at 0.42 -- below random -- a substantial-looking length, and
+    # squeezes the whole range that matters into the right-hand third.
+    vals = [r[1] for r in rows]
+    ax.hlines(range(len(rows)), 0.5, vals, color=colors, linewidth=1.6,
+              alpha=0.55, zorder=2)
+    ax.scatter(vals, range(len(rows)), s=42, c=colors, edgecolor="white",
+               linewidth=0.8, zorder=3)
     ax.axvline(0.5, color=INK2, linewidth=1.4, zorder=4)
-    ax.text(0.5, len(rows) - 0.2, " 0.5 = random", fontsize=7.5, color=INK2,
-            va="top")
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([f"{r[0]}  ({r[3]})" for r in rows], fontsize=7)
     ax.set_xlabel("transfer C-index on the held-out cohort")
-    ax.set_xlim(0, 1.0)
+    lo, hi = min(vals), max(vals)
+    pad = max(0.03, (hi - lo) * 0.12)
+    ax.set_xlim(min(0.5, lo) - pad, hi + pad)
+    ax.text(0.5, -0.9, "0.5 = random", fontsize=7.5, color=INK2,
+            ha="center", va="top")
     ax.set_title("(a) Transfer by cohort, with event count")
     ax.grid(axis="y", visible=False)
     from matplotlib.patches import Patch

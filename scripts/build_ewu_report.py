@@ -3451,11 +3451,16 @@ def ch6_loco(doc, x: F, n: N, A: dict, figdir: str):
              space_before=8)
     add_figure(doc, f"{figdir}/fig6_loco.png")
     caption(doc, n.f() + ":", "Leave-one-cancer-out transfer. (a) transfer "
-                              "C-index for every held-out cohort with its "
-                              "event count, cohorts with fewer than 60 "
-                              "events shown in grey; (b) transfer against "
-                              "the held-out cohort's event rate.",
-            above=False)
+                              "C-index for every held-out cohort, with its "
+                              "event count beside the name and cohorts "
+                              "under 60 events in grey; each stalk runs "
+                              "from 0.5, the random value, so a cohort "
+                              "below chance extends to the left and its "
+                              "distance from random is what the length "
+                              "shows; (b) transfer against the held-out "
+                              "cohort's event rate, with the fitted line "
+                              "over the powered cohorts and the extremes "
+                              "labelled.", above=False)
 
 
 def ch6_interpret(doc, x: F, n: N, A: dict, runs: str, figdir: str):
