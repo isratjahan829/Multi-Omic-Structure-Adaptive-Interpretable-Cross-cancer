@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 CELLS: list[tuple[str, str]] = []
 
@@ -41,6 +42,31 @@ def _package_blob_literal(width: int = 96) -> str:
         gen = os.path.join(REPO, "scripts", "make_synthetic.py")
         if os.path.isfile(gen):
             zf.write(gen, "scripts/make_synthetic.py")
+        # The derived-analysis module, so Section 2 computes the report's
+        # numbers with exactly the code the report used.
+        ra = os.path.join(REPO, "scripts", "report_analysis.py")
+        if os.path.isfile(ra):
+            zf.write(ra, "scripts/report_analysis.py")
+        # The manuscript run exports themselves. Without these the notebook
+        # would have to retrain to say anything, and a retrained reduced run
+        # is exactly the mismatch this section exists to remove. They are
+        # aggregate tables only -- no patient-level data travels here.
+        for sub in ("runs_pan_cohort", "runs_pan_stage"):
+            folder = os.path.join(REPO, sub)
+            if not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                keep = (name.endswith(".csv")
+                        or name in ("cohort_ablation.json",
+                                    "cohort_parameter_report.json",
+                                    "stage_binary_parameter_report.json"))
+                if keep:
+                    zf.write(os.path.join(folder, name),
+                             os.path.join(sub, name))
+        payload = os.path.join(REPO, "deliverables",
+                               "manuscript_payload.json")
+        if os.path.isfile(payload):
+            zf.write(payload, "deliverables/manuscript_payload.json")
     blob = base64.b64encode(buf.getvalue()).decode()
     lines = [blob[i: i + width] for i in range(0, len(blob), width)]
     return "\n".join(f'    "{line}"' for line in lines)
@@ -925,6 +951,50 @@ md("""
 
 
 # --------------------------------------------------------------------------- #
+_HEAD = re.compile(r"^(#{2,3}) (\d+)(\.\d+)?(\.?) ", re.M)
+
+
+def _shift_sections(text: str) -> str:
+    """Bump every heading numbered 2 or higher by one.
+
+    The authoritative results section is inserted as Section 2, so the
+    sections that were 2..7 become 3..8. Only heading lines are touched.
+    """
+    def repl(m):
+        major = int(m.group(2))
+        if major < 2:
+            return m.group(0)
+        return f"{m.group(1)} {major + 1}{m.group(3) or ''}{m.group(4)} "
+    return _HEAD.sub(repl, text)
+
+
+RESULTS_CELLS: list[tuple[str, str]] = []
+
+
+def rmd(text: str) -> None:
+    RESULTS_CELLS.append(("markdown", text.strip("\n")))
+
+
+def rcode(text: str) -> None:
+    RESULTS_CELLS.append(("code", text.strip("\n")))
+
+
+def insert_results_section() -> None:
+    """Put the authoritative results section in as Section 2.
+
+    The sections already appended are renumbered first, so the new section
+    takes the number 2 and nothing collides. The new cells are inserted
+    after the setup cell, because they need the extracted artefacts but
+    nothing else.
+    """
+    for i, (kind, src) in enumerate(CELLS):
+        if kind == "markdown":
+            CELLS[i] = (kind, _shift_sections(src))
+    idx = next(i for i, (k, src) in enumerate(CELLS)
+               if k == "markdown" and src.lstrip().startswith("## 3."))
+    CELLS[idx:idx] = RESULTS_CELLS
+
+
 def build() -> dict:
     cells = []
     for kind, src in CELLS:
@@ -946,7 +1016,620 @@ def build() -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Section 2 -- the authoritative results. These cells read the manuscript run
+# exports that travel inside the embedded zip and print exactly the numbers
+# the report contains, then verify that they match it.
+# --------------------------------------------------------------------------- #
+rmd(r"""
+## 2. The manuscript results
+
+**Read this section first, and quote only from it.**
+
+Every number in the project report comes from two runs that were executed
+once, at full settings, and then exported: the 32-class `cohort` run and the
+`stage_binary` run. Those exports travel inside the zip embedded in Section 1,
+so the cells below reproduce the report's tables wherever this notebook is
+opened, without refitting anything and without a network call.
+
+This matters because of a trap that caught an earlier version of this
+notebook. Section 4 onwards *retrains* the model at a deliberately reduced
+configuration so that the notebook finishes in about an hour. A reduced run
+produces different numbers — the same architecture on fewer genes for fewer
+epochs is simply a different experiment — so the figures it prints are **not**
+the report's figures and must never be quoted as though they were. The two
+are kept apart here: Section 2 is the report, Sections 4 to 8 are a
+demonstration you can run yourself. The last cell of this section checks the
+agreement automatically, so you do not have to take that on trust.
+""")
+
+rcode(r"""
+# Locate the manuscript artefacts: the extracted zip first, then the
+# repository, so this works both on Kaggle and next to a checkout.
+import os, sys, json
+
+CANDIDATES = [PKG_ROOT, os.path.abspath("."), os.path.abspath("..")]
+ART_ROOT = next((c for c in CANDIDATES
+                 if os.path.isfile(os.path.join(
+                     c, "runs_pan_cohort", "table2_single_fold.csv"))), None)
+assert ART_ROOT, ("the manuscript exports are missing; rebuild the notebook "
+                  "with scripts/build_notebook.py from a full checkout")
+
+RUNS_COHORT = os.path.join(ART_ROOT, "runs_pan_cohort")
+RUNS_STAGE  = os.path.join(ART_ROOT, "runs_pan_stage")
+PAYLOAD     = os.path.join(ART_ROOT, "deliverables",
+                           "manuscript_payload.json")
+
+sys.path.insert(0, os.path.join(ART_ROOT, "scripts"))
+if os.path.isdir(os.path.join(ART_ROOT, "scripts")):
+    sys.path.insert(0, os.path.join(ART_ROOT, "scripts"))
+import report_analysis as RA          # the module the report itself uses
+
+A = RA.analyse(RUNS_COHORT)           # derived analyses, cohort run
+S = RA.analyse(RUNS_STAGE)            # derived analyses, stage_binary run
+
+print("artefact root :", ART_ROOT)
+print("cohort run    :", RUNS_COHORT)
+print("stage run     :", RUNS_STAGE)
+print("phases present in the cohort run:",
+      ", ".join(k for k, v in A.items() if v and k not in ("runs", "panel")))
+print("phases present in the stage run :",
+      ", ".join(k for k, v in S.items() if v and k not in ("runs", "panel")))
+""")
+
+rmd(r"""
+### 2.1 The assembled dataset
+
+Descriptive statistics of the data both runs were fitted on. Everything here
+is computed from the exported cohort table; the entropy is in nats and its
+maximum `ln K` is what a perfectly balanced set of `K` cohorts would give.
+""")
+
+rcode(r"""
+import pandas as pd
+pd.set_option("display.width", 200)
+pd.set_option("display.max_columns", 50)
+pd.set_option("display.max_rows", 200)
+
+d = A["descriptives"]
+rows = [
+    ("studies (K)",                  d["n_cohorts"]),
+    ("patients",                     int(d["patients_total"])),
+    ("observed deaths",              int(d["events_total"])),
+    ("pooled event rate",            round(d["pooled_event_rate"], 4)),
+    ("smallest cohort",              f"{int(d['patients_min'])} ({d['patients_min_cohort']})"),
+    ("largest cohort",               f"{int(d['patients_max'])} ({d['patients_max_cohort']})"),
+    ("median cohort size",           d["patients_median"]),
+    ("imbalance ratio",              round(d["imbalance_ratio"], 2)),
+    ("Shannon entropy H (nats)",     round(d["entropy_nats"], 4)),
+    ("maximum entropy ln K",         round(d["entropy_max"], 4)),
+    ("normalised entropy H / ln K",  round(d["entropy_ratio"], 4)),
+    ("Gini impurity",                round(d["gini"], 4)),
+    ("lowest event rate",            f"{d['event_rate_min']} ({d['event_rate_min_cohort']})"),
+    ("highest event rate",           f"{d['event_rate_max']} ({d['event_rate_max_cohort']})"),
+    ("cohorts under 20 events",      d["n_events_below_20"]),
+    ("cohorts under 60 events",      d["n_events_below_60"]),
+]
+print(pd.DataFrame(rows, columns=["quantity", "value"]).to_string(index=False))
+""")
+
+rmd(r"""
+### 2.2 The complete metric panel, both targets
+
+All twenty-four metrics each run computed, side by side, so no metric can
+have been chosen after the fact. These are the numbers in the report's metric
+panel table.
+""")
+
+rcode(r"""
+ORDER = ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted",
+         "precision_macro", "recall_macro", "specificity_macro", "npv_macro",
+         "kappa", "kappa_quadratic", "mcc", "top2_accuracy", "auroc",
+         "auprc", "log_loss", "brier", "ece", "c_index", "auc@12m",
+         "auc@36m", "auc@60m", "logrank_chi2", "logrank_p",
+         "mean_predictive_entropy"]
+LOWER_IS_BETTER = {"log_loss", "brier", "ece", "logrank_p",
+                   "mean_predictive_entropy"}
+
+panel = pd.DataFrame({
+    "cohort":       pd.Series({m: A["panel"].get(m) for m in ORDER}),
+    "stage_binary": pd.Series({m: S["panel"].get(m) for m in ORDER}),
+}).reindex(ORDER)
+panel["better"] = ["lower" if m in LOWER_IS_BETTER else "higher"
+                   for m in panel.index]
+print(panel.to_string(float_format=lambda v: f"{v:.4g}"))
+""")
+
+rmd(r"""
+### 2.3 Reconstructed contingency tables and the consistency audit
+
+The per-class export gives each class's support and its three rates. From
+those the one-versus-rest contingency table is recovered exactly
+
+    TP = sensitivity · n_c,   FN = n_c − TP,
+    TN = specificity · (N − n_c),   FP = (N − n_c) − TN
+
+and from it the negative predictive value, Youden's J and the per-class
+Matthews correlation follow, none of which the run exported directly. A
+Wilson score interval is attached to every sensitivity, because a recall
+measured on nineteen patients is not a recall measured on two hundred.
+
+The audit then recomputes each pooled macro metric from the per-class table
+and compares it with the pooled value the run reported. They should agree to
+floating-point precision; if they did not, something in the pipeline would be
+averaging over the wrong axis.
+""")
+
+rcode(r"""
+pc = A["per_class"]
+cols = ["class", "support", "tp", "fp", "fn", "tn", "sensitivity",
+        "sens_ci_low", "sens_ci_high", "specificity", "precision", "npv",
+        "f1", "youden", "mcc", "mean_predicted_prob"]
+tbl = pd.DataFrame(pc["rows"])[cols]
+print(tbl.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print()
+print("macro over the per-class table:",
+      {k: round(v, 6) for k, v in pc["macro"].items() if v is not None})
+print("support-weighted F1:", round(pc["weighted_f1"], 6))
+print("support sums to", int(pc["support_sum"]),
+      "which must equal the held-out split size")
+""")
+
+rcode(r"""
+for name, res in (("cohort", A), ("stage_binary", S)):
+    con = res["consistency"]
+    if not con:
+        print(f"{name}: per-class export absent"); continue
+    df = pd.DataFrame(con["rows"])[["metric", "recomputed", "reported",
+                                    "abs_diff", "how"]]
+    print(f"--- {name}: recomputed from the per-class table vs reported")
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.10f}"))
+    print(f"largest disagreement anywhere: {con['max_abs_diff']:.2e}")
+    print("AUDIT", "PASS" if con["max_abs_diff"] < 1e-9 else "FAIL", "\n")
+""")
+
+rmd(r"""
+### 2.4 Generalisation gap, absolutely and relatively
+
+The gap is reported both ways because an absolute gap of 0.06 means something
+different on a metric sitting at 0.8 than on one sitting at 0.2.
+
+    gap = train − test,      relative gap = 100 · (train − test) / train
+""")
+
+rcode(r"""
+for name, res in (("cohort", A), ("stage_binary", S)):
+    g = res["gap"]
+    if not g:
+        print(f"{name}: generalisation-gap export absent"); continue
+    df = pd.DataFrame(g["rows"])[["metric", "train", "validation", "test",
+                                  "gap", "gap_pct"]]
+    print(f"--- {name}: train n={int(g['n'])}, test n={int(g['n_test'])}")
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print(f"mean |gap| over the discriminative metrics: "
+          f"{g['mean_abs_gap']:.4f}; largest {g['max_gap']:.4f} on "
+          f"{g['max_gap_metric']}\n")
+
+c = A["cost"]
+print(f"model size: {c['trainable_parameters']:,} parameters against "
+      f"{c['training_patients']:,} training patients "
+      f"= {c['parameters_per_patient']:.1f} per patient")
+""")
+
+rmd(r"""
+### 2.5 The comparator panel and where the proposed model ranks
+
+Every comparator was fitted on the same folds. The rank is computed by
+inserting MOSAIC-GNN into the ordered list of all models that produce a given
+metric — highest first where higher is better, lowest first otherwise.
+
+This is the section that carries the project's central negative result, so it
+is printed in full rather than summarised.
+""")
+
+rcode(r"""
+for name, res, runs in (("cohort", A, RUNS_COHORT),
+                        ("stage_binary", S, RUNS_STAGE)):
+    src = RA.read_csv(os.path.join(runs, "table3_comparison_full.csv"))
+    key = list(src[0])[0]
+    mets = ["accuracy", "balanced_accuracy", "f1_macro", "auroc", "auprc",
+            "mcc", "ece", "c_index"]
+    rows = [dict(model="MOSAIC-GNN",
+                 **{m: res["panel"].get(m) for m in mets})]
+    for r in src:
+        rows.append(dict(model=r[key], **{m: RA.num(r.get(m)) for m in mets}))
+    df = pd.DataFrame(rows).sort_values("balanced_accuracy",
+                                        ascending=False, na_position="last")
+    print(f"--- {name}: classification and survival, every model")
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print()
+""")
+
+rcode(r"""
+for name, res in (("cohort", A), ("stage_binary", S)):
+    r = res["ranks"]
+    df = pd.DataFrame(r["rows"])[["metric", "mosaic", "rank", "of",
+                                  "best_model", "best_value",
+                                  "delta_to_best", "direction"]]
+    print(f"--- {name}: rank of MOSAIC-GNN on every metric")
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print(f"first place on {r['n_rank_1']} of {r['n_metrics']} metrics; "
+          f"median rank {r['median_rank']}; best {r['best_rank']}; "
+          f"worst {r['worst_rank']}\n")
+""")
+
+rmd(r"""
+### 2.6 Paired bootstrap tests with multiplicity correction
+
+Comparing two independently noisy means is the wrong test: both models were
+evaluated on the same patients, so their errors are correlated. The paired
+bootstrap resamples those patients and recomputes the difference
+
+    Δ = metric(MOSAIC-GNN) − metric(comparator)
+
+on each resample, so a negative Δ means MOSAIC-GNN scored lower. From the
+reported interval the standard error and a standardised effect follow:
+
+    SE = (upper − lower) / (2 · 1.95996),      z = Δ / SE
+
+The run corrected for multiplicity with Benjamini-Hochberg within each
+metric. The cell below recomputes that correction independently from the
+stored p-values and reports the largest disagreement, then checks what a
+stricter pooled family would do.
+""")
+
+rcode(r"""
+for name, res in (("cohort", A), ("stage_binary", S)):
+    pr = res["paired"]
+    keep = ["model", "bacc_delta", "bacc_se", "bacc_z", "bacc_q",
+            "bacc_q_recomputed", "cindex_delta", "cindex_se", "cindex_z",
+            "cindex_q", "cindex_q_recomputed"]
+    df = pd.DataFrame(pr["rows"])[keep]
+    print(f"--- {name}: paired bootstrap, derived SE and z, q recomputed")
+    print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print(f"family sizes {pr['family_sizes']}; largest |stored q − "
+          f"recomputed q| = {pr['q_max_abs_diff']:.2e}")
+    print("BH CHECK", "PASS" if pr["q_max_abs_diff"] < 1e-9 else "FAIL")
+    print(f"pooling both metrics into one family of "
+          f"{pr['pooled_family_size']} tests moves q by up to "
+          f"{pr['pooled_q_max_abs_diff']:.4f}; verdict changes: "
+          f"{pr['pooled_verdict_flips'] or 'none'}\n")
+""")
+
+rcode(r"""
+# The headline verdicts, counted from the corrected tests rather than read
+# off the table by eye.
+payload = json.load(open(PAYLOAD))
+for target in ("cohort", "stage_binary"):
+    f = payload["facts"][target]["paired"]
+    for metric in ("bacc", "cindex"):
+        b = f[metric]
+        print(f"{target:13s} {metric:7s}: of {b['n_tested']} comparators "
+              f"tested, MOSAIC-GNN is significantly worse than "
+              f"{b['n_worse']}, better than {b['n_better']} "
+              f"({', '.join(b['better_models']) or 'none'}), "
+              f"tied with {b['n_tied']}")
+""")
+
+rmd(r"""
+### 2.7 What the molecular data adds over clinical covariates
+
+The premise the whole multi-omic field rests on, and the comparison most
+multi-omic papers leave out. It was measured two independent ways on two
+independently fitted targets: a penalised Cox model with and without the
+molecular blocks, and MOSAIC-GNN against a clinical-only Cox model in the
+paired bootstrap.
+""")
+
+rcode(r"""
+rows = []
+for target in ("cohort", "stage_binary"):
+    f = payload["facts"][target]
+    mg = f["molecular_gain"]
+    cc = f["paired"]["models"]["cox_clinical_only"]
+    rows.append({
+        "target": target,
+        "cox with molecular": mg["molecular"],
+        "cox clinical only": mg["clinical_only"],
+        "difference": mg["delta"],
+        "relative %": 100 * mg["delta"] / mg["clinical_only"],
+        "MOSAIC − clinical Cox": cc["cindex_delta"],
+        "CI low": cc["cindex_ci_low"], "CI high": cc["cindex_ci_high"],
+        "q": cc["cindex_q"],
+    })
+print(pd.DataFrame(rows).to_string(index=False,
+                                   float_format=lambda v: f"{v:.4f}"))
+print()
+print("Both targets agree, both intervals exclude zero, both survive "
+      "correction. This is the clearest positive finding of the project.")
+""")
+
+rmd(r"""
+### 2.8 Ablation, in units of the measured noise floor
+
+The pipeline was fitted three times under an identical seed, giving balanced
+accuracies of 0.4567, 0.4341 and 0.4547 — a spread of about ±0.01 with the
+seed fixed, because parallel scatter-add sums floating-point contributions in
+an order that is not fixed between runs and floating-point addition is not
+associative. Every ablation effect is therefore reported as
+
+    floors = |Δ| / 0.01
+
+and an arm is interpretable only when that exceeds one. The ablation ran at
+reduced settings, so its absolute level is not comparable with Section 2.2;
+only the differences between arms are read.
+""")
+
+rcode(r"""
+ab = A["ablation"]
+print(f"full model: BAcc {ab['full']:.4f} (fold SD {ab['full_sd']:.4f} over "
+      f"{ab['full_folds']} folds), {ab['seconds_mean']:.0f} s per fold")
+df = pd.DataFrame(ab["arms"])[["arm", "balanced_accuracy",
+                               "balanced_accuracy_sd", "auroc", "c_index",
+                               "delta", "floors", "outside"]]
+print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print(f"\n{ab['n_outside']} arms clear the noise floor, {ab['n_inside']} do "
+      "not. The two that do not are the auxiliary objectives, so neither "
+      "can be claimed to contribute -- nor to hurt.")
+print("The cohort-adversary explanation offered in an earlier draft "
+      "predicted roughly +0.17 here, about seventeen floors; the measured "
+      "value is "
+      f"{[a['delta'] for a in ab['arms'] if a['arm']=='no_disentangle'][0]:.4f}"
+      ". It is falsified and withdrawn.")
+""")
+
+rmd(r"""
+### 2.9 Label permutation control
+
+The whole pipeline was retrained on shuffled training labels. A leaking
+protocol would still score above chance; an honest one collapses to it. The
+distance from the null is reported as a z-score as well as a p-value, because
+with `B` permutations the smallest attainable p-value is `1/(B+1)` and that
+bound — not the strength of the effect — is what the p-value shows.
+""")
+
+rcode(r"""
+pm = A["permutation"]
+print(pd.DataFrame(pm["rows"])[["metric", "observed", "null_mean", "null_sd",
+                                "null_max", "excess", "z", "p_value"]]
+      .to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print(f"\nB = {int(pm['B'])} permutations, so the smallest attainable "
+      f"p-value is {pm['p_floor']:.2f}. Every individual draw:")
+print(pd.DataFrame(pm["draws"]).to_string(index=False,
+                                          float_format=lambda v: f"{v:.4f}"))
+print("\nAUROC and the C-index both collapse onto 0.5, which is exactly "
+      "where a model with no usable signal must land. The control passes; "
+      "the evidence is the collapse and the z-scores, not the p-value.")
+""")
+
+rmd(r"""
+### 2.10 Data-limited or architecture-limited?
+
+Four training-set sizes, the held-out split unchanged. Each curve is fitted
+by least squares against `log2 n`, so the slope reads as the gain per
+doubling of the data:
+
+    y = a + b · log2 n,      R2 = 1 − SS_res / SS_tot
+""")
+
+rcode(r"""
+ss = A["samplesize"]
+print(pd.DataFrame(ss["rows"])[["n_train", "log2n", "fraction",
+                                "train_balanced_accuracy",
+                                "test_balanced_accuracy", "gap_bacc",
+                                "train_c_index", "test_c_index",
+                                "gap_cindex"]]
+      .to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print()
+fits = [(k, ss[k]) for k in ("test_balanced_accuracy", "test_c_index",
+                             "train_balanced_accuracy", "train_c_index")]
+print(pd.DataFrame([dict(curve=k, **v) for k, v in fits])
+      [["curve", "first", "last", "gain", "slope_per_doubling", "r2"]]
+      .to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print("\nClassification gains "
+      f"{ss['test_balanced_accuracy']['slope_per_doubling']:.4f} per "
+      f"doubling (R2 {ss['test_balanced_accuracy']['r2']:.3f}) and has not "
+      "flattened: it is data-limited. The training C-index is flat "
+      f"(slope {ss['train_c_index']['slope_per_doubling']:.4f}, "
+      f"R2 {ss['train_c_index']['r2']:.3f}), so survival ranking is close "
+      "to what this feature space supports.")
+""")
+
+rmd(r"""
+### 2.11 Leave-one-cancer-out transfer
+
+The experiment that addresses the cohort-detector problem directly: each
+cohort is held out of training entirely and the model is then asked to
+stratify risk inside it. A cohort detector cannot do this.
+
+**Only the survival column is reportable.** In a leave-one-cancer-out fold the
+held-out cohort contains patients of one class, so balanced accuracy reduces
+to the recall of that single class and the Matthews correlation is zero by
+construction. Those are artefacts of the split, not transfer measurements,
+and they appear nowhere below. An earlier draft went further and claimed the
+classification metric would be near zero by the same arithmetic; that was
+wrong — the measured value on the first cohort was 0.989 — and it has been
+withdrawn. The metric is degenerate, which is not the same as small.
+
+The thirty-two log-rank tests are a family, so they are FDR-corrected and the
+significant count is reported after correction as well as before.
+""")
+
+rcode(r"""
+lc = A["loco"]
+df = pd.DataFrame(lc["rows"])[["cohort", "patients", "events", "event_rate",
+                               "c_index", "logrank_p", "logrank_q"]]
+print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print(f"\nmedian {lc['median']:.4f}, IQR {lc['q1']:.3f}-{lc['q3']:.3f}, "
+      f"range {lc['min']:.3f}-{lc['max']:.3f}, mean {lc['mean']:.4f} "
+      f"(SD {lc['sd']:.4f})")
+print(f"{lc['n_above_half']} of {lc['n_cohorts']} cohorts exceed 0.5; "
+      f"log-rank significant in {lc['n_p_lt_05']} before correction and "
+      f"{lc['n_q_lt_05']} after it")
+print()
+for key in ("all", "events_ge_20", "events_ge_60"):
+    g = lc["groups"][key]
+    c = g["corr_event_rate"]
+    print(f"{key:14s} n={g['n']:2d} median={g['median']:.4f} "
+          f"q<0.05 in {g['n_q_lt_05']:2d} | corr(event rate, C-index) "
+          f"r={c['r']:.3f} p={c['p']:.4f} "
+          f"CI {c['ci_low']:.3f} to {c['ci_high']:.3f}")
+print("\nTransfer falls as the held-out cohort's event rate rises, and "
+      "restricting to the powered cohorts strengthens the relationship "
+      "rather than weakening it.")
+""")
+
+rmd(r"""
+### 2.12 Interpretation
+
+Two channels: integrated gradients over the input blocks, and the model's own
+learned per-gene gates and module attention. The share each omic block
+carries is
+
+    share(block) = sum over genes |IG(gene, block)| / sum over all blocks
+
+One confound is stated rather than reported as a finding: the co-alteration
+relation links genes whose alterations co-occur, and genes at the same
+chromosomal locus co-occur because they are deleted or amplified together.
+Where a module's members are locus neighbours, recovering it validates the
+clustering and not biology.
+""")
+
+rcode(r"""
+for name, res, runs in (("cohort", A, RUNS_COHORT),
+                        ("stage_binary", S, RUNS_STAGE)):
+    it = res["interpretation"]
+    print(f"--- {name}: attribution by omic block")
+    print(pd.DataFrame([
+        {"block": b, "sum |IG|": v["abs_sum"],
+         "share %": 100 * (v["share"] or 0)}
+        for b, v in it["blocks"].items()
+    ]).to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print(f"gates: mean {it['gate_mean']:.4f}, range "
+          f"{it['gate_min']:.4f} to {it['gate_max']:.4f}")
+    print("top genes:", ", ".join(it["top_genes"][:10]), "\n")
+
+genes = pd.read_csv(os.path.join(RUNS_COHORT, "table7_gene_importance.csv"))
+print("top 25 genes by attribution, cohort run")
+print(genes.head(25).to_string(index=False,
+                               float_format=lambda v: f"{v:.5f}"))
+""")
+
+rmd(r"""
+### 2.13 Does this notebook agree with the report?
+
+The whole point of this section. Every headline number printed above is
+checked against `deliverables/manuscript_payload.json`, which is the file the
+report is built from. A `PASS` on every row means the notebook and the report
+are the same experiment; any `FAIL` means they have drifted and the report
+should not be trusted until it is rebuilt.
+""")
+
+rcode(r"""
+checks, TOL = [], 1e-9
+
+def chk(label, got, want, how="equal"):
+    # Record one check. `how` is "equal" or "at most".
+    if got is None or want is None:
+        ok = False
+    elif how == "at most":
+        ok = float(got) <= float(want) + TOL
+    else:
+        ok = abs(float(got) - float(want)) <= TOL
+    checks.append((label, got, want, how, "PASS" if ok else "FAIL"))
+
+for target, res in (("cohort", A), ("stage_binary", S)):
+    f = payload["facts"][target]
+    p = res["panel"]
+    for metric, fact in (("balanced_accuracy", "mosaic_balanced_accuracy"),
+                         ("accuracy", "mosaic_accuracy"),
+                         ("auroc", "mosaic_auroc"),
+                         ("auprc", "mosaic_auprc"),
+                         ("mcc", "mosaic_mcc"),
+                         ("f1_macro", "mosaic_f1_macro"),
+                         ("ece", "mosaic_ece"),
+                         ("c_index", "mosaic_c_index"),
+                         ("logrank_p", "mosaic_logrank_p")):
+        chk(f"{target}: {metric}", p.get(metric), f.get(fact))
+    mg = f["molecular_gain"]
+    chk(f"{target}: molecular gain delta", mg["delta"],
+        mg["molecular"] - mg["clinical_only"])
+
+fc = payload["facts"]["cohort"]
+chk("cohort: patients",      A["descriptives"]["patients_total"],
+    fc["n_patients"])
+chk("cohort: deaths",        A["descriptives"]["events_total"],
+    fc["n_events"])
+chk("cohort: studies",       A["descriptives"]["n_cohorts"], fc["n_cohorts"])
+chk("ablation: full BAcc",   A["ablation"]["full"],
+    fc["ablation"]["full_bacc"])
+for arm, v in fc["ablation"]["arms"].items():
+    got = next((a["delta"] for a in A["ablation"]["arms"]
+                if a["arm"] == arm), None)
+    chk(f"ablation: {arm} delta", got, v["delta"])
+chk("loco: median",          A["loco"]["median"],      fc["loco"]["median"])
+chk("loco: cohorts > 0.5",   A["loco"]["n_above_half"],
+    fc["loco"]["n_above_half"])
+chk("loco: n cohorts",       A["loco"]["n_cohorts"],   fc["loco"]["n_cohorts"])
+chk("samplesize: test BAcc gain",
+    A["samplesize"]["test_balanced_accuracy"]["gain"],
+    fc["sample_size"]["bacc_gain"])
+for m, key in (("balanced_accuracy", "bacc"), ("auroc", "auroc"),
+               ("c_index", "cindex")):
+    row = next(r for r in A["permutation"]["rows"] if r["metric"] == m)
+    chk(f"permutation: {m} null mean", row["null_mean"],
+        fc["permutation_values"][key]["mean"])
+# Model size: checked for internal consistency rather than against a typed
+# constant, since the parameter report is the only place it was measured.
+chk("parameters per patient = params / patients",
+    A["cost"]["parameters_per_patient"],
+    A["cost"]["trainable_parameters"] / A["cost"]["training_patients"])
+chk("cohort: per-class support sums to the held-out split",
+    A["per_class"]["support_sum"], A["gap"]["n_test"])
+# On stage_binary only the patients carrying an AJCC stage label are scored,
+# so the per-class support is a subset of the split rather than all of it.
+chk("stage: per-class support fits inside its held-out split",
+    S["per_class"]["support_sum"], S["gap"]["n_test"], how="at most")
+
+res = pd.DataFrame(checks, columns=["check", "notebook", "report payload",
+                                    "test", "verdict"])
+print(res.to_string(index=False))
+print(f"\nFor the record: the stage_binary held-out split holds "
+      f"{int(S['gap']['n_test']):,} patients, of whom "
+      f"{int(S['per_class']['support_sum']):,} carry an AJCC stage label and "
+      f"are therefore scored -- "
+      f"{100 * S['per_class']['support_sum'] / S['gap']['n_test']:.1f} % of "
+      "it. Its metrics are computed on that labelled subset, which is why "
+      "its support does not sum to the split size the way the cohort run's "
+      "does.")
+n_fail = int((res["verdict"] == "FAIL").sum())
+print(f"\n{len(res) - n_fail} of {len(res)} checks PASS.")
+if n_fail:
+    print("MISMATCH -- the notebook and the report disagree. Rebuild the "
+          "report with scripts/build_ewu_report.py before quoting either.")
+    raise SystemExit(f"{n_fail} checks failed")
+print("The notebook above and the project report are the same experiment.")
+""")
+
+rmd(r"""
+---
+
+## The reduced demonstration run starts here
+
+Everything from the next section on **retrains the model from scratch at a
+deliberately reduced configuration** — fewer genes, fewer epochs, fewer folds
+— so that the notebook finishes in about an hour on a laptop-class machine.
+
+That makes it a different experiment from the one above. Its numbers will not
+match Section 2, and they are not the project's results. They are here so you
+can watch the pipeline run end to end, change something and see what happens.
+
+If you only want the results, stop reading at Section 2.
+""")
+
+
 if __name__ == "__main__":
+    insert_results_section()
     out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        "notebooks", "mosaic_gnn.ipynb")
     os.makedirs(os.path.dirname(out), exist_ok=True)

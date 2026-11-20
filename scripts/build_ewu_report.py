@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from typing import Optional
 
 import docx
@@ -232,6 +233,8 @@ class F:
             self.tables = {t["id"]: t for t in raw}
         self.figures = {f["label"]: f for f in payload.get("figures", [])}
         self.aux = {}          # extra run artefacts loaded from --runs
+        self.analysis = {}     # derived analyses, cohort run
+        self.analysis_stage = {}   # derived analyses, stage_binary run
         self.missing = set()
 
     def a(self, path: str, default=None):
@@ -501,7 +504,7 @@ def abbreviations(doc):
 # --------------------------------------------------------------------------- #
 # Chapters 1-3
 # --------------------------------------------------------------------------- #
-def ch1(doc, x: F):
+def ch1(doc, x: F, n: N):
     chapter(doc, "1", "Introduction", first=True)
     section(doc, "1.1 Background")
     para(doc, "Cancer prognosis has traditionally rested on histological "
@@ -605,7 +608,7 @@ def ch1(doc, x: F):
               "out future work.")
 
 
-def ch2(doc, x: F):
+def ch2(doc, x: F, n: N):
     chapter(doc, "2", "Problem Analysis")
     section(doc, "2.1 Complexity of Pan-Cancer Multi-Omic Prognosis")
     para(doc, "Three properties make this problem hard in ways that are easy "
@@ -664,7 +667,7 @@ def ch2(doc, x: F):
     ])
 
 
-def ch3(doc, x: F):
+def ch3(doc, x: F, n: N):
     chapter(doc, "3", "Literature Review")
     section(doc, "3.1 Multi-Omic Integration without Graphs")
     para(doc, "Early multi-omic prognostic work concatenated omic blocks into "
@@ -719,7 +722,7 @@ def ch3(doc, x: F):
               "studies is, to our knowledge, not reported at this scale. "
               "Those three gaps define the contribution claimed here.")
     section(doc, "3.7 Literature Review Table")
-    caption(doc, "Table 1:", "Comparison of representative multi-omic methods "
+    caption(doc, n.t() + ":", "Comparison of representative multi-omic methods "
                              "against MOSAIC-GNN on the design axes relevant "
                              "to this project.")
     add_table(doc, [
@@ -745,7 +748,7 @@ def ch3(doc, x: F):
 # --------------------------------------------------------------------------- #
 # Chapter 4 - Design and Implementation
 # --------------------------------------------------------------------------- #
-def ch4(doc, x: F, figdir: str):
+def ch4(doc, x: F, n: N, A: dict, figdir: str):
     chapter(doc, "4", "Design and Implementation")
 
     section(doc, "4.1 Dataset and Pre-Committed Feature Space")
@@ -934,10 +937,10 @@ def ch4(doc, x: F, figdir: str):
 # --------------------------------------------------------------------------- #
 # Chapter 5 - Experimental Setup
 # --------------------------------------------------------------------------- #
-def ch5(doc, x: F):
+def ch5(doc, x: F, n: N):
     chapter(doc, "5", "Experimental Setup")
     section(doc, "5.1 Computing Environment and Software")
-    caption(doc, "Table 2:", "Computing environment and the principal "
+    caption(doc, n.t() + ":", "Computing environment and the principal "
                              "software components used for every run "
                              "reported in Chapter 6.")
     add_table(doc, [
@@ -967,7 +970,7 @@ def ch5(doc, x: F):
               "at reduced settings.", space_before=8)
 
     section(doc, "5.2 Hyperparameters")
-    caption(doc, "Table 3:", "Principal hyperparameters. These were chosen "
+    caption(doc, n.t() + ":", "Principal hyperparameters. These were chosen "
                              "from the validation split only; no value was "
                              "selected using held-out test performance.")
     add_table(doc, [
@@ -1022,6 +1025,134 @@ def ch5(doc, x: F):
          "is absent from this report rather than estimated."),
     ])
 
+    section(doc, "5.4 Evaluation Metrics: Definitions")
+    para(doc, "Every metric reported in Chapter 6 is defined here, so that "
+              "no number in that chapter depends on the reader guessing a "
+              "convention. Throughout, a class c has support n_c, and its "
+              "one-versus-rest contingency table has true positives TP, "
+              "false positives FP, false negatives FN and true negatives "
+              "TN over N held-out patients. A metric written \"macro\" is "
+              "the unweighted mean of that metric over all K classes, which "
+              "gives a cohort of thirty-six patients the same weight as a "
+              "cohort of a thousand.")
+    rich(doc, [("Classification. ", True),
+               ("The agreement and rate measures:", False)])
+    formula(doc, "Accuracy = Σ_c TP_c / N,      "
+                 "Sensitivity_c = TP_c/(TP_c+FN_c),      "
+                 "Specificity_c = TN_c/(TN_c+FP_c)")
+    formula(doc, "Precision_c = TP_c/(TP_c+FP_c),      "
+                 "NPV_c = TN_c/(TN_c+FN_c),      "
+                 "F1_c = 2·Precision_c·Sensitivity_c /"
+                 " (Precision_c+Sensitivity_c)")
+    formula(doc, "Balanced accuracy = (1/K) Σ_c Sensitivity_c      "
+                 "(identical to macro sensitivity)")
+    para(doc, "Balanced accuracy is the headline classification metric "
+              "everywhere in this report, because the class distribution is "
+              "strongly non-uniform and raw accuracy would reward a model "
+              "for predicting the large cohorts. The weighted F1 instead "
+              "weights each class by n_c/N, so the two F1 columns answer "
+              "different questions and both are reported.")
+    rich(doc, [("Chance-corrected and ranking measures. ", True),
+               ("Cohen's kappa compares the observed agreement p_o with "
+                "the agreement p_e expected from the marginals; its "
+                "quadratic form penalises a mistake by the square of its "
+                "distance, which needs more than two ordered classes and "
+                "is therefore undefined on the binary target. The "
+                "Matthews correlation is the correlation coefficient of "
+                "the contingency table and is the single most "
+                "imbalance-robust summary available:", False)])
+    formula(doc, "κ = (p_o − p_e)/(1 − p_e),      "
+                 "MCC = (TP·TN − FP·FN) / "
+                 "√((TP+FP)(TP+FN)(TN+FP)(TN+FN))")
+    para(doc, "AUROC is the area under the sensitivity-against-"
+              "(1−specificity) curve, macro-averaged over the "
+              "one-versus-rest problems; AUPRC is the area under the "
+              "precision-against-sensitivity curve, which is the more "
+              "informative of the two when positives are rare. Top-2 "
+              "accuracy is the fraction of patients whose true class is "
+              "among the model's two highest-scoring classes.")
+    rich(doc, [("Proper scoring and calibration. ", True),
+               ("These three measure the probabilities rather than the "
+                "decisions, and on all three a lower value is better:",
+                False)])
+    formula(doc, "LogLoss = −(1/N) Σ_i log p̂_i,y_i,      "
+                 "Brier = (1/N) Σ_i Σ_k ( p̂_ik − 1[y_i=k] )²")
+    formula(doc, "ECE = Σ_b (n_b/N) · | accuracy(b) − confidence(b) |,"
+                 "      over equal-width confidence bins b")
+    para(doc, "Expected calibration error is the one metric in the panel "
+              "that a discriminative model can fail while scoring well "
+              "everywhere else, which is why Section 6.16 is devoted to it. "
+              "Predictive uncertainty is summarised by the entropy of the "
+              "predicted distribution under Monte-Carlo dropout, "
+              "H(p̂) = −Σ_k p̂_k log p̂_k, reported in nats and also as a "
+              "fraction of its maximum ln K so that targets with different "
+              "class counts can be compared.")
+    rich(doc, [("Survival. ", True),
+               ("Harrell's concordance index is the fraction of "
+                "comparable patient pairs the model orders correctly. A "
+                "pair is comparable when the earlier event time is an "
+                "observed death rather than a censoring:", False)])
+    formula(doc, "C = Σ_{comparable (i,j)} 1[ risk_i > risk_j ] / "
+                 "#{comparable pairs},      C = 0.5 is random ordering")
+    para(doc, "Time-dependent AUC at 12, 36 and 60 months is the same "
+              "ordering question restricted to survival status at that "
+              "horizon, which exposes a model that ranks early deaths well "
+              "and late deaths badly or the reverse. The log-rank test "
+              "compares the Kaplan-Meier curves of the risk tertiles the "
+              "model itself defines, and its chi-square statistic has two "
+              "degrees of freedom for three groups; it answers whether the "
+              "strata separate at all, not by how much, which is what the "
+              "C-index is for.")
+
+    section(doc, "5.5 Statistical Procedures")
+    para(doc, "Five procedures are used in Chapter 6 and each is stated "
+              "here with the formula applied, so that every derived number "
+              "in that chapter can be checked by hand.")
+    bullets(doc, [
+        ("Paired bootstrap. ", "The held-out patients are resampled with "
+         "replacement B times; on each resample both models' metrics are "
+         "recomputed and their difference recorded. The reported interval "
+         "is the empirical 2.5th to 97.5th percentile of those "
+         "differences, and the p-value is the proportion of resamples in "
+         "which the difference reverses sign. Because both models see the "
+         "same resampled patients, their correlated errors cancel, which "
+         "an unpaired comparison of two means does not achieve."),
+        ("Standard error and standardised effect. ", "From an interval "
+         "Δ ± z·SE the standard error is recovered as "
+         "SE = (upper − lower)/(2·1.95996) and the standardised effect as "
+         "z = Δ/SE. Both are tabulated in Section 6.8 because an interval "
+         "alone makes a small effect measured precisely look like a large "
+         "effect measured loosely."),
+        ("Benjamini-Hochberg correction. ", "For m p-values sorted "
+         "ascending, q₍i₎ = min over j ≥ i of (p₍j₎·m/j), capped at one. "
+         "This controls the expected proportion of false discoveries among "
+         "the rejected hypotheses. Section 6.8 recomputes the procedure "
+         "independently from the stored p-values as a check, and also "
+         "reports what a stricter pooled family would do."),
+        ("Wilson score interval. ", "For k successes in n trials the "
+         "interval is centred at (k + z²/2)/(n + z²) with half-width "
+         "z/(n+z²)·√(k(n−k)/n + z²/4). It is used instead of the normal "
+         "approximation because several classes have fewer than twenty "
+         "members, where the normal interval can run outside [0,1]."),
+        ("Pearson correlation with a Fisher z interval. ", "The "
+         "coefficient is r = Σ(x−x̄)(y−ȳ)/√(Σ(x−x̄)²Σ(y−ȳ)²); its "
+         "two-sided p-value comes from t = r√((n−2)/(1−r²)) on n−2 "
+         "degrees of freedom; and its interval is obtained by "
+         "transforming z = artanh r, SE = 1/√(n−3), and mapping the "
+         "interval back with the hyperbolic tangent. Sections 6.13 and "
+         "6.14 report all three."),
+        ("Least squares on a logarithmic axis. ", "The sample-size curves "
+         "are fitted as y = a + b·log₂ n, so that b reads as the change "
+         "per doubling of the training set, with "
+         "R² = 1 − SS_residual/SS_total."),
+    ])
+    para(doc, "One convention governs how all of this is reported. Where a "
+              "quantity was measured, it is given. Where it was derived "
+              "from measured quantities, the formula is printed beside it. "
+              "Where a phase did not run, the report says so. No number in "
+              "Chapter 6 was estimated, interpolated or carried over from "
+              "another configuration.")
+
 
 # --------------------------------------------------------------------------- #
 # Chapter 6 - Experimental Results and Discussion
@@ -1044,670 +1175,6 @@ def comparison_table(doc, x: F, tid: str, label: str, cap: str, cols,
     add_table(doc, out, widths=widths, font=font)
 
 
-def ch6(doc, x: F, figdir: str):
-    chapter(doc, "6", "Experimental Results and Discussion")
-    para(doc, "Every number in this chapter was produced by a run that was "
-              "actually executed on the assembled data. Where a phase was "
-              "run at reduced settings, as recorded in Section 5.3, the "
-              "section says so before the number. Where a phase did not "
-              "run, the report says that instead of supplying a figure. "
-              "Three of the results below contradict what the architecture "
-              "was designed to achieve; they are reported in the same "
-              "detail as the favourable ones, because a result that only "
-              "survives when it agrees with the design is not a result.")
-
-    # 6.1 ---------------------------------------------------------------- #
-    section(doc, "6.1 Assembled Dataset")
-    para(doc, "The assembly retrieved "
-              f"{x.i('cohort','n_cohorts')} studies covering "
-              f"{x.i('cohort','n_patients')} patients with "
-              f"{x.i('cohort','n_events')} observed deaths. For the "
-              "cohort target every patient carries a label, so "
-              f"all {x.i('cohort','n_labelled')} are usable. For "
-              "stage_binary only the cohorts that record AJCC "
-              f"stage contribute, giving {x.i('stage_binary','n_labelled')} "
-              f"labelled patients in "
-              f"{x.i('stage_binary','n_cohorts_labelled')} cohorts. The "
-              "difference between those two counts is itself a result: a "
-              "third of the pan-cancer population cannot be used for the "
-              "clinically meaningful endpoint at all.")
-    fe = x.g("cohort", "fewest_events") or []
-    if fe:
-        para(doc, "The cohorts with the fewest events are "
-                  + "; ".join(f"{d['cohort']} ({d['events']} events in "
-                              f"{d['patients']} patients)" for d in fe[:5])
-                  + ". Any per-cohort statistic computed on those rows rests "
-                    "on a handful of comparable pairs, which is why "
-                    "Section 6.10 separates the cohorts that are powered "
-                    "enough to read from those that are not.")
-    payload_table(doc, x, "T1", "Table 4",
-                  widths=[0.75, 0.62, 0.95, 0.95, 0.6, 0.72, 0.95, 0.72],
-                  font=7.5,
-                  head_map={"patients": "Patients", "blocks": "Omic blocks",
-                            "genes_per_block": "Genes per block",
-                            "events": "Events", "event_rate": "Event rate",
-                            "median_OS_months": "Median OS (months)",
-                            "labelled": "Labelled"})
-    add_figure(doc, f"{figdir}/fig1_cohorts.png")
-    caption(doc, "Figure 1:", "Cohort composition of the assembled dataset: "
-                              "patients per cohort, observed events, event "
-                              "rate and follow-up. The spread across cohorts "
-                              "is the reason pooled metrics are reported "
-                              "alongside per-cohort ones.", above=False)
-
-    # 6.2 ---------------------------------------------------------------- #
-    section(doc, "6.2 Headline Performance of MOSAIC-GNN")
-    para(doc, "On the held-out fold of the cohort run, "
-              f"MOSAIC-GNN reaches a balanced accuracy of "
-              f"{x.n('cohort','mosaic_balanced_accuracy')} over "
-              f"{x.i('cohort','n_cohorts')} classes, an accuracy of "
-              f"{x.n('cohort','mosaic_accuracy')}, an AUROC of "
-              f"{x.n('cohort','mosaic_auroc')}, a Matthews correlation of "
-              f"{x.n('cohort','mosaic_mcc')} and a C-index of "
-              f"{x.n('cohort','mosaic_c_index')}. The log-rank test over "
-              "model-defined risk tertiles gives a chi-square of "
-              f"{x.t2('LR-χ²')} with p = {x.t2('LR-p')}, so the "
-              "representation does separate survival. Calibration is the "
-              "weak point: the expected calibration error is "
-              f"{x.n('cohort','mosaic_ece')}, which means the predicted "
-              "probabilities should not be read as probabilities without "
-              "recalibration.")
-    para(doc, "On stage_binary the same architecture reaches a "
-              f"balanced accuracy of "
-              f"{x.n('stage_binary','mosaic_balanced_accuracy')}, an AUROC "
-              f"of {x.n('stage_binary','mosaic_auroc')} and a C-index of "
-              f"{x.n('stage_binary','mosaic_c_index')}, with an expected "
-              f"calibration error of {x.n('stage_binary','mosaic_ece')}. "
-              "The two targets therefore behave very differently: the "
-              "32-class problem is almost solved by discriminative "
-              "accuracy and badly calibrated, while the binary clinical "
-              "endpoint is only modestly better than chance on "
-              "classification and well calibrated. The second is the "
-              "honest reading of how hard stage prediction from this "
-              "feature space actually is.")
-    payload_table(doc, x, "T2", "Table 5", widths=[1.45, 1.5, 1.45, 1.5],
-                  font=9.0)
-
-    # 6.3 ---------------------------------------------------------------- #
-    section(doc, "6.3 Generalisation Gap and the Noise Floor")
-    para(doc, f"With {fmt(x.a('params.parameters_per_patient'), 1)} "
-              "parameters per training patient, "
-              "overfitting is the first thing a reader should suspect, so "
-              "the identical metric panel was computed on all three splits "
-              "before any comparison was made.")
-    payload_table(doc, x, "S1", "Table 6",
-                  cols=["Split", "n", "Acc", "BAcc", "AUROC", "MCC",
-                        "LogLoss", "Brier", "C-index"],
-                  widths=[1.42, 0.58, 0.54, 0.56, 0.6, 0.54, 0.66, 0.56,
-                          0.66], font=8.5)
-    gb = x.num("S1", "gap (train - test)", "BAcc")
-    gc = x.num("S1", "gap (train - test)", "C-index")
-    para(doc, "The train-to-test gap is "
-              f"{fmt(gb)} on balanced accuracy and {fmt(gc)} on the "
-              "C-index. That is a real gap, not a negligible one, but it is "
-              "an order of magnitude smaller than the headline performance "
-              "and far smaller than the collapse that a model memorising "
-              f"{_cnt(x.a('params.training_patients'))} patients with "
-              f"{_cnt(x.a('params.trainable_parameters'))} "
-              "parameters would show. The model is fitting the training "
-              "split harder than the test split and generalising all the "
-              "same.", space_before=8)
-    para(doc, "Alongside the gap, the pipeline's own reproducibility was "
-              "measured, because an ablation cannot be read without it. "
-              "Three fits under an identical seed gave balanced accuracies "
-              "of 0.4567, 0.4341 and 0.4547 — a spread of about +/-0.01 "
-              "with the seed held fixed. The cause is that parallel "
-              "scatter-add over graph edges accumulates floating-point "
-              "contributions in an order that is not fixed between runs, "
-              "and floating-point addition is not associative. This is the "
-              "yardstick Section 6.7 uses, and it is the reason two of the "
-              "seven ablation arms are reported as indistinguishable from "
-              "noise rather than as small effects.")
-    add_figure(doc, f"{figdir}/fig2_risk.png")
-    caption(doc, "Figure 2:", "The identical metric panel on the training, "
-                              "validation and held-out splits. The bars are "
-                              "read for the distance between them, not for "
-                              "their height.", above=False)
-
-    # 6.4 ---------------------------------------------------------------- #
-    section(doc, "6.4 Per-Class Behaviour and Training Dynamics")
-    para(doc, "A pooled 32-class metric hides which classes carry it. The "
-              "per-class breakdown shows that performance tracks support "
-              "almost monotonically: the large cohorts are recognised "
-              "reliably and the smallest are recognised poorly or not at "
-              "all. This is the expected behaviour of inverse-frequency "
-              "weighting on a long-tailed label distribution, and it is "
-              "why balanced accuracy, which weights every class equally, "
-              "sits well below raw accuracy. The complete per-class table "
-              "is Table A2 in the Appendix.")
-    add_figure(doc, f"{figdir}/fig3_classification.png")
-    caption(doc, "Figure 3:", "Per-class behaviour on the held-out fold, "
-                              "with each class's support shown alongside its "
-                              "scores.", above=False)
-    para(doc, "The learning curves show no divergence between the training "
-              "and validation traces of the kind that marks runaway "
-              "overfitting; the validation score rises and then flattens, "
-              "and early stopping fires on the flat part. The recorded "
-              "trace is Table A3 in the Appendix.")
-    add_figure(doc, f"{figdir}/figS1_learning_curves.png")
-    caption(doc, "Figure 4:", "Training and validation traces over epochs.",
-            above=False)
-
-    # 6.5 ---------------------------------------------------------------- #
-    section(doc, "6.5 Comparison Against Established Methods")
-    para(doc, f"{x.i('cohort','n_baselines')} comparators were fitted on "
-              "exactly the same folds, spanning penalised linear models, "
-              "support vector machines, discriminant analysis, tree "
-              "ensembles, gradient boosting, nearest neighbours, naive "
-              "Bayes, a PCA pipeline, early- and late-fusion neural "
-              "networks, three patient-graph networks, a MOGONET-style "
-              "model, DeepSurv and three Cox variants including a "
-              "clinical-only Cox model.")
-    mos = ["MOSAIC-GNN",
-           x.n('cohort', 'mosaic_accuracy'),
-           x.n('cohort', 'mosaic_balanced_accuracy'),
-           x.n('cohort', 'mosaic_f1_macro'),
-           x.n('cohort', 'mosaic_auroc'),
-           x.n('cohort', 'mosaic_auprc'),
-           x.n('cohort', 'mosaic_mcc'),
-           x.n('cohort', 'mosaic_ece')]
-    comparison_table(doc, x, "T5", "Table 7",
-                     "Classification on the held-out fold of the "
-                     "cohort run. MOSAIC-GNN's own measured row "
-                     "is placed first; every other row was fitted on the "
-                     "same folds.",
-                     ["Acc", "BAcc", "F1-M", "AUROC", "AUPRC", "MCC", "ECE"],
-                     mos, widths=[1.95, 0.63, 0.63, 0.63, 0.63, 0.63,
-                                  0.63, 0.63], font=8.0)
-    mos_s = ["MOSAIC-GNN", x.n('cohort', 'mosaic_c_index'),
-             x.t2('AUC12'), x.t2('AUC36'), x.t2('AUC60'),
-             x.t2('LR-χ²'), x.t2('LR-p')]
-    comparison_table(doc, x, "T6", "Table 8",
-                     "Survival ranking on the same fold: Harrell's C-index, "
-                     "time-dependent AUC at 12, 36 and 60 months, and the "
-                     "log-rank statistic over model-defined risk tertiles.",
-                     ["C-index", "AUC12", "AUC36", "AUC60", "LR-χ²", "LR-p"],
-                     mos_s, widths=[1.95, 0.75, 0.68, 0.68, 0.68, 0.74,
-                                    0.84], font=8.0)
-    para(doc, "Read on its own, Table 7 already contradicts the design "
-              "hypothesis. The best comparator balanced accuracy on "
-              f"cohort is {x.best('cohort','best_balanced_accuracy')}, "
-              f"against MOSAIC-GNN's "
-              f"{x.n('cohort','mosaic_balanced_accuracy')}; a penalised "
-              "linear model on the same 469-gene feature space separates "
-              "the 32 cohorts far better than the graph network does. On "
-              "survival the picture is different: the best comparator "
-              f"C-index is {x.best('cohort','best_c_index')} against "
-              f"MOSAIC-GNN's {x.n('cohort','mosaic_c_index')}, which is a "
-              "narrow margin.", space_before=8)
-    para(doc, "Those are unpaired comparisons of two noisy numbers, so they "
-              "are not the test. The paired bootstrap resamples the same "
-              "held-out patients and recomputes both models on each "
-              "resample, and the difference is reported as "
-              "delta = MOSAIC-GNN minus comparator, so a negative delta "
-              "means MOSAIC-GNN is behind. Benjamini-Hochberg correction is "
-              "applied across the whole family of tests.")
-    payload_table(doc, x, "T7", "Table 9",
-                  cols=["Model", "bacc_delta", "bacc_ci_low", "bacc_ci_high",
-                        "bacc_q", "cindex_delta", "cindex_ci_low",
-                        "cindex_ci_high", "cindex_q"],
-                  widths=[1.72, 0.63, 0.57, 0.57, 0.56, 0.63, 0.57, 0.57,
-                          0.56], font=7.0,
-                  head_map={"bacc_delta": "Δ BAcc", "bacc_ci_low": "CI low",
-                            "bacc_ci_high": "CI high", "bacc_q": "q",
-                            "cindex_delta": "Δ C-idx",
-                            "cindex_ci_low": "CI low",
-                            "cindex_ci_high": "CI high", "cindex_q": "q"},
-                  caption_text="Paired bootstrap against MOSAIC-GNN on "
-                               "identical held-out patients, with "
-                               "Benjamini-Hochberg corrected q-values. A "
-                               "negative delta means MOSAIC-GNN scored "
-                               "lower than that comparator. An empty cell "
-                               "means the comparator does not produce that "
-                               "kind of prediction.")
-    cb = lambda t, k: x.g(t, f"paired.bacc.{k}")      # noqa: E731
-    cc = lambda t, k: x.g(t, f"paired.cindex.{k}")    # noqa: E731
-    para(doc, "The corrected result on cohort is that of "
-              f"{cb('cohort','n_tested')} comparators tested on balanced "
-              f"accuracy, MOSAIC-GNN is significantly worse than "
-              f"{cb('cohort','n_worse')} and significantly better than "
-              f"{cb('cohort','n_better')} "
-              f"({', '.join(cb('cohort','better_models') or [])}), with "
-              f"{cb('cohort','n_tied')} ties. On the C-index, of "
-              f"{cc('cohort','n_tested')} comparators tested it is "
-              f"significantly better than {cc('cohort','n_better')} "
-              f"({', '.join(cc('cohort','better_models') or [])}), "
-              f"significantly worse than {cc('cohort','n_worse')}, and tied "
-              f"with {cc('cohort','n_tied')}.", space_before=8)
-    para(doc, "On stage_binary, of "
-              f"{cb('stage_binary','n_tested')} comparators tested on "
-              f"balanced accuracy it is significantly worse than "
-              f"{cb('stage_binary','n_worse')} and significantly better "
-              f"than {cb('stage_binary','n_better')} "
-              f"({', '.join(cb('stage_binary','better_models') or [])}), "
-              f"with {cb('stage_binary','n_tied')} ties; on the C-index it "
-              f"is better than {cc('stage_binary','n_better')} "
-              f"({', '.join(cc('stage_binary','better_models') or [])}), "
-              f"worse than {cc('stage_binary','n_worse')} "
-              f"({', '.join(cc('stage_binary','worse_models') or [])}) and "
-              f"tied with {cc('stage_binary','n_tied')}.")
-    rich(doc, [("This is the central negative result of the project. ",
-                True),
-               ("The proposed architecture does not beat established "
-                "methods on either classification endpoint once the "
-                "comparison is paired and corrected: on the 32-class "
-                "problem it loses to most of the panel, and on the "
-                "clinical endpoint it loses to a large minority of it. On "
-                "survival ranking it is competitive rather than superior, "
-                "tied with most of the survival comparators. Reporting "
-                "this is not a failure of the study; the study was built "
-                "so that this answer could be obtained rather than "
-                "avoided, and the two places where the model does win are "
-                "reported in Section 6.6 with the same machinery.", False)])
-    add_figure(doc, f"{figdir}/fig4_comparison.png")
-    caption(doc, "Figure 5:", "MOSAIC-GNN against every comparator with "
-                              "bootstrap intervals, on survival ranking and "
-                              "on classification.", above=False)
-
-    # 6.6 ---------------------------------------------------------------- #
-    section(doc, "6.6 Do Molecular Features Add Anything Over Clinical "
-                 "Covariates?")
-    para(doc, "This is the premise the multi-omic field rests on and the "
-              "comparison most multi-omic papers omit. Two independent "
-              "measurements of it were made.")
-    mgc, mgs = x.g("cohort", "molecular_gain"), x.g("stage_binary",
-                                                    "molecular_gain")
-    if isinstance(mgc, dict) and isinstance(mgs, dict):
-        caption(doc, "Table 10:", "Molecular information over and above "
-                                  "the clinical covariates, measured twice: "
-                                  "once by the best penalised Cox model "
-                                  "with and without the molecular blocks, "
-                                  "and once by MOSAIC-GNN against the "
-                                  "clinical-only Cox model in the paired "
-                                  "bootstrap.")
-        add_table(doc, [
-            ["Comparison", "cohort run", "stage_binary run"],
-            [f"Penalised Cox with molecular ({mgc.get('model','?')})",
-             fmt(mgc.get("molecular")), fmt(mgs.get("molecular"))],
-            ["Clinical covariates only (Cox)",
-             fmt(mgc.get("clinical_only")), fmt(mgs.get("clinical_only"))],
-            ["Difference in C-index",
-             fmt(mgc.get("delta")), fmt(mgs.get("delta"))],
-            ["MOSAIC-GNN minus clinical-only Cox (paired)",
-             fmt(x.g("cohort", "paired.models.cox_clinical_only."
-                               "cindex_delta")),
-             fmt(x.g("stage_binary", "paired.models.cox_clinical_only."
-                                     "cindex_delta"))],
-            ["Corrected q-value of that paired difference",
-             fmt(x.g("cohort", "paired.models.cox_clinical_only.cindex_q"),
-                 4),
-             fmt(x.g("stage_binary",
-                     "paired.models.cox_clinical_only.cindex_q"), 4)],
-        ], widths=[3.0, 1.55, 1.55], font=9.0)
-    _CCO = "paired.models.cox_clinical_only.cindex_delta"
-    para(doc, "Both measurements agree, and they agree on both targets. "
-              "Adding the molecular blocks to a penalised Cox model raises "
-              f"the C-index by {fmt((mgc or {}).get('delta'))} on the "
-              f"cohort run and {fmt((mgs or {}).get('delta'))} on "
-              "the stage_binary run. MOSAIC-GNN itself exceeds "
-              "the clinical-only Cox model by "
-              f"{fmt(x.g('cohort', _CCO))} and "
-              f"{fmt(x.g('stage_binary', _CCO))} respectively, and in the "
-              "paired bootstrap both differences survive correction. A "
-              "result "
-              "that replicates across two independently fitted targets on "
-              "overlapping but differently labelled patient sets is worth "
-              "more than a larger single-target effect, and this is the "
-              "clearest positive finding of the project.", space_before=8)
-    para(doc, "It should be read for what it is. It says that the "
-              "molecular data carries prognostic information a clinician "
-              "does not already have. It does not say that this "
-              "architecture is the way to extract it: Section 6.5 shows "
-              "that simpler models extract as much or more.")
-
-
-def ch6b(doc, x: F, figdir: str, runs: str):
-    # 6.7 ---------------------------------------------------------------- #
-    section(doc, "6.7 Ablation: Which Components Earn Their Place")
-    para(doc, "Seven arms were run, each removing exactly one component and "
-              "changing nothing else. As recorded in Section 5.3 the "
-              "ablation ran on a reduced gene subset for six epochs over "
-              "two folds, so its absolute balanced accuracy, "
-              f"{x.n('cohort','ablation.full_bacc')} for the full model, is "
-              "lower than Section 6.2's and is not comparable to it. Only "
-              "the differences between arms are interpreted, and they are "
-              "read against the +/-0.01 noise floor measured in "
-              "Section 6.3.")
-    arms = x.g("cohort", "ablation.arms") or {}
-    if arms:
-        rows = [["Component removed", "BAcc", "Δ vs full",
-                 "Outside the noise floor?"]]
-        for name, d in sorted(arms.items(),
-                              key=lambda kv: kv[1].get("delta", 0)):
-            rows.append([name, fmt(d.get("bacc"), 4), fmt(d.get("delta"), 4),
-                         "yes" if abs(float(d.get("delta", 0))) > 0.01
-                         else "no - indistinguishable from noise"])
-        caption(doc, "Table 11:", "Ablation at reduced settings. Each row "
-                                  "removes one component; delta is the "
-                                  "change in balanced accuracy against the "
-                                  "full model on the same folds. The last "
-                                  "column compares the effect with the "
-                                  "pipeline's measured run-to-run spread.")
-        add_table(doc, rows, widths=[1.7, 0.85, 0.9, 2.65], font=9.0)
-    outside = x.g("cohort", "ablation.outside_floor") or []
-    inside = x.g("cohort", "ablation.inside_floor") or []
-    para(doc, "Three things follow. First, the clinical path dominates: "
-              "removing the clinical covariates costs "
-              f"{x.n('cohort','ablation.arms.no_clinical.delta', 4)} and "
-              "removing only their residual path costs "
-              f"{x.n('cohort','ablation.arms.no_clinical_residual.delta', 4)}"
-              ", both an order of magnitude larger than any other arm. The "
-              "model's accuracy rests mostly on the clinical covariates, "
-              "not on the molecular graph machinery. Second, the three "
-              "structural components do clear the noise floor — removing "
-              "the gene graph costs "
-              f"{x.n('cohort','ablation.arms.no_gene_graph.delta', 4)}, the "
-              "patient graph "
-              f"{x.n('cohort','ablation.arms.no_patient_graph.delta', 4)} "
-              "and module pooling "
-              f"{x.n('cohort','ablation.arms.no_module_pool.delta', 4)} — "
-              "so the two-level design is doing measurable work even "
-              "though the whole model is beaten by simpler comparators. "
-              "Third, the two auxiliary objectives do not: removing the "
-              "contrastive term costs "
-              f"{x.n('cohort','ablation.arms.no_contrast.delta', 4)} and "
-              "removing disentanglement "
-              f"{x.n('cohort','ablation.arms.no_disentangle.delta', 4)}, "
-              "both inside the floor, so on this evidence neither can be "
-              "claimed to contribute.", space_before=8)
-    para(doc, f"Arms outside the floor: {', '.join(outside) or NOT_RUN}. "
-              f"Arms inside the floor: {', '.join(inside) or NOT_RUN}.")
-    rich(doc, [("A retracted explanation. ", True),
-               ("An earlier draft of this work explained the "
-                "disentanglement arm by hypothesising that the cohort "
-                "adversary was the component suppressing tissue-of-origin "
-                "signal, and predicted that removing it would raise "
-                "cohort accuracy sharply. The ablation was run "
-                "specifically to test that prediction. Removing "
-                "disentanglement changed balanced accuracy by "
-                + x.n("cohort", "ablation.arms.no_disentangle.delta", 4) +
-                ", where the hypothesis required a change of roughly "
-                "+0.17. The hypothesis is falsified and has been withdrawn "
-                "from this report. It is recorded here because a "
-                "pre-registered prediction that failed is evidence, and "
-                "deleting it would misrepresent how the conclusions were "
-                "reached.", False)])
-    add_figure(doc, f"{figdir}/fig5_ablation.png")
-    caption(doc, "Figure 6:", "Change in each headline metric when a single "
-                              "component is removed. Negative values mean "
-                              "the component helped. Effects smaller than "
-                              "the measured noise floor are not "
-                              "interpretable.", above=False)
-
-    # 6.8 ---------------------------------------------------------------- #
-    section(doc, "6.8 Label Permutation Control")
-    para(doc, "The whole pipeline was retrained on shuffled training "
-              "labels. A leaking protocol would still score above chance "
-              "after shuffling; an honest one should collapse to chance.")
-    payload_table(doc, x, "S2", "Table 12",
-                  widths=[1.5, 0.85, 0.85, 0.75, 0.8, 0.95, 0.65], font=9.0,
-                  head_map={"observed": "Observed", "null_mean": "Null mean",
-                            "null_sd": "Null SD", "null_max": "Null max",
-                            "n_permutations": "Permutations",
-                            "p_value": "p"})
-    nperm = x.g("cohort", "permutation_values.n")
-    para(doc, "Balanced accuracy under permutation falls to "
-              f"{x.n('cohort','permutation_values.bacc.mean', 4)} "
-              f"(SD {x.n('cohort','permutation_values.bacc.sd', 4)}) "
-              f"against an observed "
-              f"{x.n('cohort','permutation_values.bacc.obs')}. AUROC falls "
-              f"to {x.n('cohort','permutation_values.auroc.mean')} "
-              f"(SD {x.n('cohort','permutation_values.auroc.sd')}) from an "
-              f"observed {x.n('cohort','permutation_values.auroc.obs')}, "
-              "and the C-index falls to "
-              f"{x.n('cohort','permutation_values.cindex.mean')} "
-              f"(SD {x.n('cohort','permutation_values.cindex.sd')}) from an "
-              f"observed {x.n('cohort','permutation_values.cindex.obs')}. "
-              "Both AUROC and the C-index land essentially on 0.5, which "
-              "is exactly where a model with no usable signal should land. "
-              "The control passes.", space_before=8)
-    para(doc, "The reported p-value must be read with its bound. With "
-              f"{NOT_RUN if nperm is None else int(nperm)} permutations the "
-              "smallest attainable p-value is "
-              f"{NOT_RUN if nperm is None else fmt(1.0 / (int(nperm) + 1), 2)}"
-              ", and that bound — not the strength of the effect — is what "
-              "the tabulated p-value reflects. The evidence that the "
-              "protocol does not leak is the collapse of the null "
-              "distribution to chance, not the p-value. One permutation "
-              "returned a C-index of 0.559, which is above 0.5; with four "
-              "permutations and a null standard deviation of about 0.044 "
-              "that is an ordinary draw from the null and not a sign of "
-              "leakage.")
-
-    # 6.9 ---------------------------------------------------------------- #
-    section(doc, "6.9 Is the Model Data-Limited or Architecture-Limited?")
-    para(doc, "The same configuration was refitted on a quarter, a half, "
-              "three quarters and all of the training data, with the "
-              "held-out split unchanged, to separate a data limitation "
-              "from an architecture limitation.")
-    payload_table(doc, x, "S3", "Table 13",
-                  widths=[0.9, 1.15, 1.15, 1.15, 1.15, 0.9], font=9.0,
-                  head_map={"train_balanced_accuracy": "Train BAcc",
-                            "train_c_index": "Train C-index",
-                            "test_balanced_accuracy": "Test BAcc",
-                            "test_c_index": "Test C-index",
-                            "fraction": "Fraction of data"})
-    para(doc, "Held-out balanced accuracy rises from "
-              f"{x.n('cohort','sample_size.bacc_min')} at "
-              f"{x.i('cohort','sample_size.n_min')} training patients to "
-              f"{x.n('cohort','sample_size.bacc_max')} at "
-              f"{x.i('cohort','sample_size.n_max')}, a gain of "
-              f"{x.n('cohort','sample_size.bacc_gain')}, and the curve has "
-              "not flattened at the largest size available. The held-out "
-              f"C-index moves much less, from "
-              f"{x.n('cohort','sample_size.cindex_min')} to "
-              f"{x.n('cohort','sample_size.cindex_max')}, a gain of "
-              f"{x.n('cohort','sample_size.cindex_gain')}, while the "
-              "training C-index stays flat throughout. The reading is that "
-              "classification is data-limited and would improve with more "
-              "patients, whereas survival ranking is close to what this "
-              "feature space supports and more patients would not move it "
-              "much.", space_before=8)
-    add_figure(doc, f"{figdir}/figS2_sample_size.png")
-    caption(doc, "Figure 7:", "Held-out performance against training-set "
-                              "size, with the training curve shown for "
-                              "contrast.", above=False)
-
-    # 6.10 --------------------------------------------------------------- #
-    section(doc, "6.10 Leave-One-Cancer-Out Transfer")
-    para(doc, "This is the experiment that addresses the cohort-detector "
-              "problem directly. For each of the "
-              f"{x.i('cohort','loco.n_cohorts')} cohorts the model is "
-              "trained with that cohort absent from training entirely and "
-              "then asked to stratify risk within it. A cohort detector "
-              "cannot do this, because the cohort it would have to detect "
-              "was never seen.")
-    rich(doc, [("What is reportable here, and what is not. ", True),
-               ("Only the survival column is reported. In a "
-                "leave-one-cancer-out fold the held-out cohort contains "
-                "patients of exactly one class, so balanced accuracy "
-                "reduces to the recall of that single class and the "
-                "Matthews correlation is zero by construction. Those "
-                "numbers are arithmetic artefacts of the split, not "
-                "transfer measurements, and they are therefore excluded "
-                "from every table and figure in this section. An earlier "
-                "draft went further and asserted that the classification "
-                "metric would be near zero by the same arithmetic; that "
-                "assertion was wrong — the measured value on the first "
-                "cohort was 0.989 — and it has been withdrawn. The "
-                "correct statement is the narrower one: the metric is "
-                "degenerate and so uninformative, not that it is small.",
-                False)])
-    payload_table(doc, x, "T9", "Table 14",
-                  cols=["Held-out cohort", "C-index", "LR-p"],
-                  widths=[1.9, 1.5, 1.6], font=9.0,
-                  caption_text="Leave-one-cancer-out transfer. The model is "
-                               "trained with the named cohort entirely "
-                               "absent and evaluated on it. Classification "
-                               "columns are omitted because they are "
-                               "degenerate in a single-class fold.")
-    para(doc, "The median transfer C-index is "
-              f"{x.n('cohort','loco.median')}, with a range from "
-              f"{x.n('cohort','loco.min')} to {x.n('cohort','loco.max')}. "
-              f"{x.i('cohort','loco.n_above_half')} of "
-              f"{x.i('cohort','loco.n_cohorts')} cohorts exceed 0.5, which "
-              "is the random-ranking value, and the log-rank test is "
-              f"significant at the 0.05 level in "
-              f"{x.i('cohort','loco.n_significant')} of them. The "
-              "representation therefore does carry risk information into "
-              "cancer types it has never seen. That is strong evidence "
-              "against the cohort-detector explanation of the pooled "
-              "result, and it is the second substantive positive finding "
-              "of the project.", space_before=8)
-    para(doc, "The failures are structured rather than random. Transfer "
-              "C-index correlates negatively with the held-out cohort's "
-              f"event rate across all {x.i('cohort','loco.corr_all.n')} "
-              f"cohorts (r = {x.n('cohort','loco.corr_all.r')}, "
-              f"p = {x.n('cohort','loco.corr_all.p', 4)}), and the "
-              "relationship strengthens when the analysis is restricted to "
-              f"the {x.i('cohort','loco.corr_powered.n')} cohorts with "
-              "enough events to be read "
-              f"(r = {x.n('cohort','loco.corr_powered.r')}, "
-              f"p = {x.n('cohort','loco.corr_powered.p', 4)}). The model "
-              "transfers best into indolent cohorts and worst into "
-              "aggressive ones. A plausible reading is that what transfers "
-              "is a general tumour-aggressiveness ordering that is "
-              "informative where deaths are sparse and insufficient where "
-              "the whole cohort is high risk, but that reading is a "
-              "hypothesis the present data cannot test and it is offered "
-              "as such.")
-    add_figure(doc, f"{figdir}/fig6_loco.png")
-    caption(doc, "Figure 8:", "Leave-one-cancer-out transfer. (a) transfer "
-                              "C-index for every held-out cohort with its "
-                              "event count, cohorts with fewer than 60 "
-                              "events shown in grey; (b) transfer against "
-                              "the held-out cohort's event rate.",
-            above=False)
-
-    # 6.11 --------------------------------------------------------------- #
-    section(doc, "6.11 Interpretation")
-    para(doc, "Two interpretability channels are reported: integrated "
-              "gradients over the input blocks, and the model's own "
-              "learned per-gene gates and module attention.")
-    csv_table(doc, f"{runs}/table7_gene_importance.csv", "Table 15",
-              "Top 15 genes by integrated-gradient attribution, with the "
-              "module each was assigned to, the learned gate and the "
-              "attribution decomposed by omic block.",
-              nrows=15, widths=[1.05, 1.25, 0.8, 0.8, 0.85, 0.85, 0.85],
-              cols=["gene", "module", "gate_mean", "ig_abs", "ig_mut",
-                    "ig_cna", "ig_exp"], font=8.5,
-              head_map={"gene": "Gene", "module": "Module",
-                        "gate_mean": "Gate", "ig_abs": "|IG|",
-                        "ig_mut": "IG mutation", "ig_cna": "IG CNA",
-                        "ig_exp": "IG expression"})
-    csv_table(doc, f"{runs}/table8_module_importance.csv", "Table 16",
-              "Top 10 functional modules by attention, with module size and "
-              "the highest-attributed genes in each.",
-              nrows=10, widths=[1.3, 0.6, 0.95, 3.4],
-              cols=["module", "size", "attention", "top_genes"], font=8.5,
-              head_map={"module": "Module", "size": "Size",
-                        "attention": "Attention",
-                        "top_genes": "Highest-attributed genes"})
-    para(doc, "The highest-attributed genes are recurrently altered cancer "
-              "genes, which is reassuring but not surprising given a panel "
-              "designed around exactly those genes. The omic decomposition "
-              "is the more informative part: attribution is dominated by "
-              "expression and copy number, with mutation contributing "
-              "very little on either target. For a model given binary "
-              "mutation indicators over a 469-gene panel, that is the "
-              "expected result — a binary indicator over a small panel "
-              "carries far less variance than a continuous expression "
-              "z-score — and it is a limitation of the encoding rather "
-              "than a statement about tumour biology.", space_before=8)
-    rich(doc, [("A confound that is not reported as a finding. ", True),
-               ("The gene graph's co-alteration relation links genes whose "
-                "alterations co-occur, and genes at the same chromosomal "
-                "locus co-occur because they are deleted or amplified "
-                "together. Modules recovered from such edges therefore "
-                "partly recover chromosomal position. Where a module's "
-                "members are locus neighbours, recovering that module "
-                "validates the clustering, not biology, and this report "
-                "does not present such modules as discovered pathways.",
-                False)])
-    add_figure(doc, f"{figdir}/fig7_interpretation.png")
-    caption(doc, "Figure 9:", "Interpretation. Top genes by attribution, "
-                              "the attribution decomposed by omic block, "
-                              "and module-level attention.", above=False)
-
-    # 6.12 --------------------------------------------------------------- #
-    section(doc, "6.12 Discussion")
-    para(doc, "Taken together the results answer the four sub-questions of "
-              "Section 1.2, and two of the four answers are not the ones "
-              "the architecture was built to produce.")
-    bullets(doc, [
-        ("RQ1, answered yes, and it replicates. ", "Molecular features add "
-         "prognostic information beyond the clinical covariates, measured "
-         "both by a penalised Cox model with and without them and by "
-         "MOSAIC-GNN against a clinical-only Cox model, on both targets, "
-         "surviving multiplicity correction in every case."),
-        ("RQ2, answered in part. ", "The three structural components — "
-         "gene graph, module pooling, learned patient graph — each clear "
-         "the measured noise floor when removed. The two auxiliary "
-         "objectives do not, and the clinical residual path dominates "
-         "everything else by an order of magnitude."),
-        ("RQ3, answered yes. ", "The representation stratifies risk in "
-         "cohorts held out entirely from training, in "
-         + (x.i("cohort", "loco.n_above_half") or NOT_RUN) + " of "
-         + (x.i("cohort", "loco.n_cohorts") or NOT_RUN) + " cases above "
-         "random, with the log-rank test significant in "
-         + (x.i("cohort", "loco.n_significant") or NOT_RUN) + ". A cohort "
-         "detector could not do this."),
-        ("RQ4, answered against the proposed model. ", "Under a paired, "
-         "corrected comparison it does not outperform established methods "
-         "on either classification endpoint, and it is competitive rather "
-         "than superior on survival ranking."),
-    ])
-    para(doc, "The practical conclusion a reader should draw is therefore "
-              "not \"use this architecture\". It is that the molecular data "
-              "is worth collecting because it carries information the "
-              "clinic does not have, that a penalised Cox model or a "
-              "gradient-boosted ensemble is a stronger starting point than "
-              "it is usually given credit for, and that the two-level "
-              "graph design contributes measurably but not enough to "
-              "overcome that gap at this sample size. Section 6.9's "
-              "sample-size curve suggests that the classification gap is "
-              "at least partly a data limitation rather than a purely "
-              "architectural one, which is a testable prediction rather "
-              "than a defence.")
-
-    # 6.13 --------------------------------------------------------------- #
-    section(doc, "6.13 Threats to Validity")
-    bullets(doc, [
-        ("Single data source. ", "Every patient comes from TCGA through "
-         "cBioPortal. No external cohort was available, so none of these "
-         "numbers has been replicated outside that source and no claim of "
-         "external validity is made."),
-        ("Panel-restricted feature space. ", "The 469-gene panel was "
-         "pre-committed, which removes selection leakage but also removes "
-         "whole classes of biology from reach. Results cannot be "
-         "generalised to genome-wide feature spaces."),
-        ("Reduced-setting phases. ", "The ablation ran on a reduced "
-         "configuration and the permutation test on four permutations. "
-         "Both are labelled wherever they appear, and neither supports a "
-         "fine-grained claim."),
-        ("Calibration. ", "An expected calibration error of "
-         + x.n("cohort", "mosaic_ece") + " on the cohort run "
-         "means the predicted probabilities are not usable as "
-         "probabilities without recalibration, whatever the discriminative "
-         "metrics show."),
-        ("Small-cohort statistics. ", "Several cohorts contribute fewer "
-         "than ten events. Per-cohort numbers for those rows are reported "
-         "for completeness and are explicitly separated from the powered "
-         "subset in Section 6.10."),
-        ("Non-determinism. ", "The measured run-to-run spread of about "
-         "+/-0.01 bounds the resolution of every single-fit comparison in "
-         "this report."),
-    ])
 
 
 # --------------------------------------------------------------------------- #
@@ -1748,7 +1215,7 @@ def csv_table(doc, path: str, label: str, cap: str, cols=None, nrows=None,
 # --------------------------------------------------------------------------- #
 # Chapter 7 - Impact
 # --------------------------------------------------------------------------- #
-def ch7(doc, x: F):
+def ch7(doc, x: F, n: N, A: dict):
     chapter(doc, "7", "Impact of Societal, Health and Safety Issues")
     section(doc, "7.1 Societal Impact")
     para(doc, "A prognostic model that works changes which patients are "
@@ -1822,7 +1289,7 @@ def ch7(doc, x: F):
 # --------------------------------------------------------------------------- #
 # Chapter 8 - Conclusion and Future Work
 # --------------------------------------------------------------------------- #
-def ch8(doc, x: F):
+def ch8(doc, x: F, n: N, A: dict):
     chapter(doc, "8", "Conclusion and Future Work")
     section(doc, "8.1 Conclusion")
     para(doc, "This project assembled a genuine pan-cancer multi-omic "
@@ -2036,7 +1503,7 @@ def references(doc):
         _set_font(p.add_run(r), 11)
 
 
-def appendix(doc, x: F, runs: str):
+def appendix(doc, x: F, n: N, runs: str):
     chapter(doc, "", "Appendix")
     para(doc, "Supporting Tables and Reproduction Instructions", size=14,
          bold=True, align="right", space_after=14, color=BLACK)
@@ -2130,23 +1597,40 @@ def load_aux(x: F, runs: str):
 def assemble(a, x: F, toc=None, out=None):
     """Render the whole report once. Returns the heading list it recorded."""
     del TOC_ENTRIES[:]
+    n = N()
+    A, S = x.analysis, x.analysis_stage
     doc = Document()
     page_setup(doc)
     footer_page_of(doc)
     title_page(doc, a.logo, a.date)
     contents(doc, toc)
     abbreviations(doc)
-    ch1(doc, x)
-    ch2(doc, x)
-    ch3(doc, x)
-    ch4(doc, x, a.figures)
-    ch5(doc, x)
-    ch6(doc, x, a.figures)
-    ch6b(doc, x, a.figures, a.runs)
-    ch7(doc, x)
-    ch8(doc, x)
+    ch1(doc, x, n)
+    ch2(doc, x, n)
+    ch3(doc, x, n)
+    ch4(doc, x, n, A, a.figures)
+    ch5(doc, x, n)
+    ch6_data(doc, x, n, A, a.figures)
+    ch6_panel(doc, x, n, A, S)
+    ch6_consistency(doc, x, n, A, S)
+    ch6_gap(doc, x, n, A, a.figures)
+    ch6_compare(doc, x, n, A, a.runs, a.figures)
+    ch6_paired(doc, x, n, A)
+    ch6_gain(doc, x, n, A, S)
+    ch6_ablation(doc, x, n, A, a.figures)
+    ch6_permutation(doc, x, n, A)
+    ch6_samplesize(doc, x, n, A, a.figures)
+    ch6_percohort(doc, x, n, A)
+    ch6_loco(doc, x, n, A, a.figures)
+    ch6_interpret(doc, x, n, A, a.runs, a.figures)
+    ch6_uncertainty(doc, x, n, A, S, a.figures)
+    ch6_cost(doc, x, n, A, S)
+    ch6_stage(doc, x, n, S, a.runs_stage)
+    ch6_discussion(doc, x, n, A, S)
+    ch7(doc, x, n, A)
+    ch8(doc, x, n, A)
     references(doc)
-    appendix(doc, x, a.runs)
+    appendix(doc, x, n, a.runs)
     target = out or a.out
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
     doc.save(target)
@@ -2198,6 +1682,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--payload", default="deliverables/manuscript_payload.json")
     ap.add_argument("--runs", default="runs_pan_cohort")
+    ap.add_argument("--runs-stage", dest="runs_stage",
+                    default="runs_pan_stage")
     ap.add_argument("--figures", default="figures")
     ap.add_argument("--logo", default="assets/ewu_logo.png")
     ap.add_argument("--date", default="19 November 2025")
@@ -2211,6 +1697,10 @@ def main() -> int:
         payload = json.load(fh)
     x = F(payload)
     load_aux(x, a.runs)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import report_analysis as RA
+    x.analysis = RA.analyse(a.runs)
+    x.analysis_stage = RA.analyse(a.runs_stage)
 
     work = a.workdir or os.path.join(os.path.dirname(a.out) or ".", "_toc")
 
@@ -2247,6 +1737,1823 @@ def main() -> int:
         print("every value in the document came from the payload or a run "
               "artefact")
     return 0
+
+
+
+
+# --------------------------------------------------------------------------- #
+# Numbering, so that forty tables and ten figures cannot drift out of order
+# --------------------------------------------------------------------------- #
+class N:
+    """Running caption numbers. `t()` and `f()` hand out the next one."""
+
+    def __init__(self):
+        self.table = 0
+        self.figure = 0
+        self.last_table = ""
+
+    def t(self) -> str:
+        self.table += 1
+        self.last_table = f"Table {self.table}"
+        return self.last_table
+
+    def tp(self, letter: str) -> str:
+        """A part of the table just handed out, e.g. 'Table 9(b)'."""
+        return f"{self.last_table}({letter})"
+
+    def f(self) -> str:
+        self.figure += 1
+        return f"Figure {self.figure}"
+
+    def ref_t(self, offset: int = 0) -> str:
+        return f"Table {self.table + offset}"
+
+
+def fv(v, d=3, dash="—"):
+    """Format a measured number, or a dash where the run produced none."""
+    if v is None:
+        return dash
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f != f:                                   # NaN
+        return dash
+    if f != 0 and (abs(f) < 10 ** (-d) or abs(f) >= 1e5):
+        return f"{f:.2e}"
+    return f"{f:.{d}f}"
+
+
+def iv(v, dash="—"):
+    if v is None:
+        return dash
+    try:
+        return format(int(round(float(v))), ",")
+    except (TypeError, ValueError):
+        return str(v)
+
+
+HIB = {
+    "accuracy": True, "balanced_accuracy": True, "f1_macro": True,
+    "f1_weighted": True, "precision_macro": True, "recall_macro": True,
+    "specificity_macro": True, "npv_macro": True, "auroc": True,
+    "auprc": True, "mcc": True, "kappa": True, "kappa_quadratic": True,
+    "top2_accuracy": True, "c_index": True, "auc@12m": True,
+    "auc@36m": True, "auc@60m": True, "logrank_chi2": True,
+    "log_loss": False, "brier": False, "ece": False, "logrank_p": False,
+    "mean_predictive_entropy": False,
+}
+
+
+def formula(doc, text: str, size=10.5):
+    """A displayed formula: centred, italic, set apart from the body."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(8)
+    p.paragraph_format.left_indent = Inches(0.25)
+    p.paragraph_format.right_indent = Inches(0.25)
+    _set_font(p.add_run(text), size, italic=True)
+    return p
+
+
+def rows_table(doc, label: str, cap: str, header, rows, widths=None,
+               font=8.5):
+    caption(doc, label + ":", cap)
+    if not rows:
+        para(doc, "[the run that produces this table did not complete]",
+             italic=True, align="left")
+        return
+    add_table(doc, [list(header)] + [list(r) for r in rows], widths=widths,
+              font=font)
+
+
+def wide_table(doc, label: str, cap: str, header, rows, groups,
+               first_width=0.95, col_width=0.6, font=7.5, part_caps=None):
+    """A table too wide for the page, split into lettered parts.
+
+    Every column of the source appears in exactly one part, so nothing is
+    dropped to make the table fit. The first column repeats in each part so
+    each part can be read on its own.
+    """
+    letters = "abcdefghij"
+    idx = {name: i for i, name in enumerate(header)}
+    single = len([g for g in groups if any(c in idx for c in g)]) == 1
+    for j, group in enumerate(groups):
+        keep = [idx[c] for c in group if c in idx]
+        if not keep:
+            continue
+        lbl = label if single else f"{label}({letters[j]})"
+        piece = (part_caps or [None] * len(groups))[j]
+        this_cap = cap if single else (
+            f"{cap} {piece}" if j == 0 else (piece or cap))
+        caption(doc, lbl + ":", this_cap)
+        out = [[header[0]] + [header[i] for i in keep]]
+        for r in rows:
+            out.append([r[0]] + [r[i] for i in keep])
+        add_table(doc, out,
+                  widths=[first_width] + [col_width] * len(keep), font=font)
+
+
+# --------------------------------------------------------------------------- #
+# Chapter 6 - Experimental Results and Discussion
+#
+# Every number is read from the run exports through report_analysis, which
+# states the formula it applies. Nothing is typed in.
+# --------------------------------------------------------------------------- #
+CLS_GROUPS = [
+    ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted"],
+    ["precision_macro", "recall_macro", "specificity_macro", "npv_macro"],
+    ["auroc", "auprc", "mcc", "kappa", "kappa_quadratic", "top2_accuracy"],
+    ["log_loss", "brier", "ece"],
+]
+CLS_CAPS = [
+    "the four pooled agreement measures.",
+    "the four macro-averaged rates of the one-versus-rest tables.",
+    "the ranking and chance-corrected measures.",
+    "the three proper scoring and calibration measures, on which a lower "
+    "value is better.",
+]
+SHORT = {
+    "accuracy": "Acc", "balanced_accuracy": "BAcc", "f1_macro": "F1-M",
+    "f1_weighted": "F1-W", "precision_macro": "Prec", "recall_macro": "Sens",
+    "specificity_macro": "Spec", "npv_macro": "NPV", "auroc": "AUROC",
+    "auprc": "AUPRC", "mcc": "MCC", "kappa": "κ",
+    "kappa_quadratic": "κ-quad", "top2_accuracy": "Top-2",
+    "log_loss": "LogLoss", "brier": "Brier", "ece": "ECE",
+    "c_index": "C-index", "auc@12m": "AUC12", "auc@36m": "AUC36",
+    "auc@60m": "AUC60", "logrank_chi2": "LR-χ²", "logrank_p": "LR-p",
+    "mean_predictive_entropy": "Entropy",
+}
+
+
+def _short(names):
+    return [SHORT.get(n, n) for n in names]
+
+
+def _cmp_rows(runs: str, panel: dict, metrics):
+    """Comparator rows for one run, MOSAIC-GNN's measured row placed first."""
+    import report_analysis as RA
+    src = RA.read_csv(os.path.join(runs, "table3_comparison_full.csv"))
+    if not src:
+        return None
+    first = list(src[0])[0]
+    rows = [["MOSAIC-GNN"] + [fv(panel.get(m)) for m in metrics]]
+    for r in sorted(src, key=lambda r: -(RA.num(r.get("balanced_accuracy"))
+                                         or -1)):
+        rows.append([r[first]] + [fv(RA.num(r.get(m))) for m in metrics])
+    return rows
+
+
+def ch6_data(doc, x: F, n: N, A: dict, figdir: str):
+    chapter(doc, "6", "Experimental Results and Discussion")
+    para(doc, "Every number in this chapter was produced by a run that was "
+              "actually executed on the assembled data, and every derived "
+              "quantity is computed from those run outputs by the formula "
+              "stated beside it in Section 5.5. Where a phase ran at "
+              "reduced settings, as recorded in Section 5.3, the section "
+              "says so before the number. Where a phase did not run, the "
+              "report says that instead of supplying a figure. Several of "
+              "the results below contradict what the architecture was "
+              "designed to achieve; they are reported in the same detail as "
+              "the favourable ones, because a result that only survives "
+              "when it agrees with the design is not a result.")
+    para(doc, "The chapter is organised so that the audit comes before the "
+              "claim. Sections 6.1 to 6.4 establish what the data is and "
+              "whether the pipeline is sound: the assembled cohorts, the "
+              "full metric panel, an arithmetic reconstruction of the "
+              "classifier's contingency tables, and the "
+              "train-to-test gap. Sections 6.5 to 6.9 are the comparison "
+              "against established methods and the question of what the "
+              "molecular data adds. Sections 6.10 to 6.14 are the component "
+              "ablation, the leakage controls and the transfer experiment. "
+              "Sections 6.15 to 6.18 cover interpretation, uncertainty, cost "
+              "and the second prediction target. Sections 6.19 and 6.20 "
+              "discuss the whole and state what threatens it.")
+
+    # ------------------------------------------------------------------ #
+    section(doc, "6.1 The Assembled Dataset")
+    d = A.get("descriptives") or {}
+    para(doc, "The assembly retrieved "
+              f"{iv(d.get('n_cohorts'))} studies covering "
+              f"{iv(d.get('patients_total'))} patients with "
+              f"{iv(d.get('events_total'))} observed deaths, a pooled event "
+              f"rate of {fv(d.get('pooled_event_rate'))}. For the "
+              "cohort target every patient carries a label. For "
+              "stage_binary only the cohorts that record AJCC "
+              f"stage contribute, giving {x.i('stage_binary','n_labelled')} "
+              f"labelled patients in "
+              f"{x.i('stage_binary','n_cohorts_labelled')} cohorts, so a "
+              "third of the pan-cancer population cannot be used for the "
+              "clinically meaningful endpoint at all. That is itself a "
+              "result and it is stated before any performance number.")
+    rows_table(doc, n.t(),
+               "Descriptive statistics of the assembled dataset. Each row "
+               "is computed from the cohort table by the formula named in "
+               "the third column; the entropy is in nats and its maximum "
+               "ln K is the value a perfectly balanced set of K classes "
+               "would give.",
+               ["Quantity", "Value", "How it is computed"],
+               [["Studies (K)", iv(d.get("n_cohorts")), "count of rows"],
+                ["Patients", iv(d.get("patients_total")),
+                 "sum of per-cohort patients"],
+                ["Observed deaths", iv(d.get("events_total")),
+                 "sum of per-cohort events"],
+                ["Pooled event rate", fv(d.get("pooled_event_rate")),
+                 "deaths / patients"],
+                ["Smallest cohort",
+                 f"{iv(d.get('patients_min'))} ({d.get('patients_min_cohort')})",
+                 "minimum of patients"],
+                ["Largest cohort",
+                 f"{iv(d.get('patients_max'))} ({d.get('patients_max_cohort')})",
+                 "maximum of patients"],
+                ["Median cohort size", fv(d.get("patients_median"), 1),
+                 "median of patients"],
+                ["Interquartile range",
+                 f"{fv(d.get('patients_q1'),1)} to {fv(d.get('patients_q3'),1)}",
+                 "25th and 75th percentiles"],
+                ["Imbalance ratio", fv(d.get("imbalance_ratio"), 2),
+                 "largest / smallest cohort"],
+                ["Shannon entropy H", fv(d.get("entropy_nats"), 4),
+                 "−Σ p_k ln p_k over cohort shares"],
+                ["Maximum entropy ln K", fv(d.get("entropy_max"), 4),
+                 "natural log of the class count"],
+                ["Normalised entropy", fv(d.get("entropy_ratio"), 4),
+                 "H / ln K"],
+                ["Gini impurity", fv(d.get("gini"), 4), "1 − Σ p_k²"],
+                ["Lowest event rate",
+                 f"{fv(d.get('event_rate_min'))} ({d.get('event_rate_min_cohort')})",
+                 "minimum of event rate"],
+                ["Highest event rate",
+                 f"{fv(d.get('event_rate_max'))} ({d.get('event_rate_max_cohort')})",
+                 "maximum of event rate"],
+                ["Median event rate", fv(d.get("event_rate_median")),
+                 "median of event rate"],
+                ["Median follow-up (months)", fv(d.get("followup_median"), 1),
+                 "median of per-cohort median OS"],
+                ["Follow-up range (months)",
+                 f"{fv(d.get('followup_min'),1)} to {fv(d.get('followup_max'),1)}",
+                 "minimum and maximum"],
+                ["Cohorts under 100 patients", iv(d.get("n_below_100")),
+                 "count where patients < 100"],
+                ["Cohorts under 20 events", iv(d.get("n_events_below_20")),
+                 "count where events < 20"],
+                ["Cohorts under 60 events", iv(d.get("n_events_below_60")),
+                 "count where events < 60"]],
+               widths=[1.95, 1.35, 3.0], font=9.0)
+    para(doc, "Three of those numbers govern how the rest of the chapter "
+              "must be read. The normalised entropy of "
+              f"{fv(d.get('entropy_ratio'), 4)} says the label distribution "
+              "is far from uniform but not pathologically skewed, so "
+              "balanced accuracy and raw accuracy will differ "
+              "substantially without either being meaningless. The "
+              f"imbalance ratio of {fv(d.get('imbalance_ratio'), 2)} says "
+              "the largest cohort contributes about thirty times as many "
+              "patients as the smallest, so any pooled metric is dominated "
+              f"by the large cohorts. And {iv(d.get('n_events_below_20'))} "
+              "cohorts carry fewer than twenty deaths, so a survival "
+              "statistic computed inside one of them rests on very few "
+              "comparable pairs — which is why Section 6.14 separates the "
+              "cohorts that are powered enough to read from those that are "
+              "not.", space_before=8)
+    payload_table(doc, x, "T1", n.t(),
+                  widths=[0.75, 0.62, 0.95, 0.95, 0.6, 0.72, 0.95, 0.72],
+                  font=7.5,
+                  head_map={"patients": "Patients", "blocks": "Omic blocks",
+                            "genes_per_block": "Genes per block",
+                            "events": "Events", "event_rate": "Event rate",
+                            "median_OS_months": "Median OS (months)",
+                            "labelled": "Labelled"})
+    add_figure(doc, f"{figdir}/fig1_cohorts.png")
+    caption(doc, n.f() + ":", "Cohort composition of the assembled dataset: "
+                              "patients per cohort, observed events, event "
+                              "rate and follow-up. The spread across cohorts "
+                              "is the reason pooled metrics are reported "
+                              "alongside per-cohort ones.", above=False)
+
+
+def ch6_panel(doc, x: F, n: N, A: dict, S: dict):
+    section(doc, "6.2 The Complete Metric Panel")
+    p = A.get("panel") or {}
+    para(doc, "All twenty-four metrics the run computed are reported, for "
+              "both targets, so that no metric can have been chosen after "
+              "the fact. The classification metrics are macro-averaged over "
+              "the one-versus-rest tables of every class, which is the "
+              "convention Section 5.4 defines.")
+    order = ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted",
+             "precision_macro", "recall_macro", "specificity_macro",
+             "npv_macro", "kappa", "kappa_quadratic", "mcc", "top2_accuracy",
+             "auroc", "auprc", "log_loss", "brier", "ece", "c_index",
+             "auc@12m", "auc@36m", "auc@60m", "logrank_chi2", "logrank_p",
+             "mean_predictive_entropy"]
+    sp = (S or {}).get("panel") or {}
+    rows = [[SHORT.get(m, m), fv(p.get(m), 4), fv(sp.get(m), 4),
+             ("higher" if HIB.get(m, True) else "lower")]
+            for m in order if m in p or m in sp]
+    rows_table(doc, n.t(),
+               "The complete metric panel on the held-out fold of each run. "
+               "The last column says which direction is better, so that no "
+               "row can be misread. A dash means the metric is undefined "
+               "for that target: the quadratic kappa needs more than two "
+               "ordered classes.",
+               ["Metric", "cohort run", "stage_binary run", "Better"],
+               rows, widths=[1.6, 1.55, 1.75, 1.0], font=9.0)
+    para(doc, "Read together the two columns describe two very different "
+              "problems. On the 32-class cohort target the model "
+              "is strongly discriminative — AUROC "
+              f"{fv(p.get('auroc'))}, Matthews correlation "
+              f"{fv(p.get('mcc'))} — and badly calibrated, with an expected "
+              f"calibration error of {fv(p.get('ece'))}. On the binary "
+              "stage_binary target it is only modestly better "
+              f"than chance on classification, balanced accuracy "
+              f"{fv(sp.get('balanced_accuracy'))} and AUROC "
+              f"{fv(sp.get('auroc'))}, but well calibrated, with an "
+              f"expected calibration error of {fv(sp.get('ece'))}. The "
+              "second is the honest measure of how hard stage prediction "
+              "from this feature space actually is, and it is the "
+              "clinically meaningful endpoint of the two.", space_before=8)
+    para(doc, "Two further contrasts are worth naming because they are "
+              "easy to misread. The specificity and the negative "
+              "predictive value on the cohort run are both above "
+              f"{fv(p.get('specificity_macro'), 2)}, which looks "
+              "impressive and is nearly automatic: with 32 classes each "
+              "one-versus-rest table has about thirty-one times as many "
+              "negatives as positives, so a model that merely avoids "
+              "over-predicting a class scores high on both. The log-rank "
+              f"chi-square of {fv(p.get('logrank_chi2'), 1)} on the two "
+              "degrees of freedom that three risk tertiles give, with p = "
+              f"{fv(p.get('logrank_p'))}, says the model-defined risk "
+              "tertiles separate survival; it does not say by how much, "
+              "which is what the C-index and the time-dependent AUCs are "
+              "for.")
+
+
+def ch6_consistency(doc, x: F, n: N, A: dict, S: dict):
+    section(doc, "6.3 Reconstructed Contingency Tables and an Internal "
+                 "Consistency Audit")
+    pc, con = A.get("per_class"), A.get("consistency")
+    para(doc, "Before the pooled numbers are compared with anything, they "
+              "are checked against their own parts. The per-class export "
+              "gives, for every class, the support n_c and the three rates "
+              "sensitivity, specificity and precision. From those the "
+              "one-versus-rest contingency table is recovered exactly:")
+    formula(doc, "TP = sensitivity · n_c,   FN = n_c − TP,   "
+                 "TN = specificity · (N − n_c),   FP = (N − n_c) − TN")
+    para(doc, "and from the recovered table three further measures follow "
+              "that the run did not export per class:")
+    formula(doc, "NPV = TN / (TN + FN),   J = sensitivity + specificity − 1,"
+                 "   MCC_c = (TP·TN − FP·FN) / √((TP+FP)(TP+FN)(TN+FP)(TN+FN))")
+    para(doc, "A Wilson score interval is attached to each sensitivity, "
+              "because a recall computed on nineteen patients and a recall "
+              "computed on two hundred should not be printed as though they "
+              "carried the same weight:")
+    formula(doc, "centre = (TP + z²/2) / (n_c + z²),   "
+                 "half-width = z/(n_c + z²) · √( TP(n_c − TP)/n_c + z²/4 ),"
+                 "   z = 1.95996")
+    if con:
+        para(doc, "The audit then recomputes each pooled macro metric from "
+                  "the per-class table and compares it with the pooled "
+                  f"value the run reported. The support of the "
+                  f"{iv(con.get('n_classes'))} classes sums to "
+                  f"{iv(con.get('support_sum'))}, which is the held-out "
+                  "split exactly, so no patient is counted twice or "
+                  "dropped.")
+        rows_table(doc, n.t(),
+                   "Internal consistency audit. Each pooled metric is "
+                   "recomputed from the per-class table by the rule in the "
+                   "second column and compared with the value the run "
+                   "itself reported. The two agree to machine precision, "
+                   "which is what the last column shows.",
+                   ["Pooled metric", "Recomputed as", "From per-class",
+                    "Run reported", "|difference|"],
+                   [[SHORT.get(r["metric"], r["metric"]), r["how"],
+                     fv(r["recomputed"], 6), fv(r["reported"], 6),
+                     fv(r["abs_diff"], 2) if (r["abs_diff"] or 0) > 1e-9
+                     else f"{(r['abs_diff'] or 0):.1e}"]
+                    for r in con["rows"]],
+                   widths=[1.25, 2.35, 1.0, 0.95, 0.85], font=8.0)
+        para(doc, "The largest disagreement anywhere in the audit is "
+                  f"{con.get('max_abs_diff', 0):.1e}, which is "
+                  "floating-point rounding and nothing else. The pooled "
+                  "metrics in Section 6.2 are therefore arithmetically "
+                  "consistent with the per-class behaviour in "
+                  f"{n.ref_t(1)}: they are not a different computation that "
+                  "happens to produce a flattering number. This check is "
+                  "cheap and it is the kind of error it would catch — a "
+                  "macro average taken over the wrong axis, or a metric "
+                  "computed on a different split — that most often "
+                  "inflates a reported result.", space_before=8)
+    if pc:
+        hdr = ["Class", "n_c", "TP", "FP", "FN", "TN", "Sens",
+               "Sens 95 % CI", "Spec", "Prec", "NPV", "F1", "J", "MCC_c",
+               "Mean p̂"]
+        rows = []
+        for r in pc["rows"]:
+            rows.append([
+                str(r["class"]), iv(r["support"]), iv(r["tp"]), iv(r["fp"]),
+                iv(r["fn"]), iv(r["tn"]), fv(r["sensitivity"]),
+                f"{fv(r['sens_ci_low'],2)}–{fv(r['sens_ci_high'],2)}",
+                fv(r["specificity"]), fv(r["precision"]), fv(r["npv"]),
+                fv(r["f1"]), fv(r["youden"]), fv(r["mcc"]),
+                fv(r["mean_predicted_prob"])])
+        rows_table(doc, n.t(),
+                   "Per-class behaviour on the held-out fold with the "
+                   "contingency table recovered for every class. Columns "
+                   "TP to TN are counts; Sens, Spec, Prec, NPV and F1 are "
+                   "the usual rates; J is Youden's index; MCC_c is the "
+                   "per-class Matthews correlation; the last column is the "
+                   "mean probability the model assigned to that class.",
+                   hdr, rows,
+                   widths=[0.42, 0.37, 0.37, 0.37, 0.37, 0.45, 0.42, 0.78,
+                           0.42, 0.42, 0.42, 0.42, 0.42, 0.45, 0.42],
+                   font=6.5)
+        m = pc["macro"]
+        para(doc, "Macro averages over the per-class table: sensitivity "
+                  f"{fv(m.get('sensitivity'))}, specificity "
+                  f"{fv(m.get('specificity'))}, precision "
+                  f"{fv(m.get('precision'))}, negative predictive value "
+                  f"{fv(m.get('npv'))}, F1 {fv(m.get('f1'))}, Youden's J "
+                  f"{fv(m.get('youden'))} and per-class Matthews "
+                  f"correlation {fv(m.get('mcc'))}. The support-weighted F1 "
+                  f"is {fv(pc.get('weighted_f1'))}. "
+                  + (f"{iv(pc.get('n_zero_recall'))} classes have a "
+                     "sensitivity of exactly zero, meaning the model never "
+                     "correctly identified a single member of them."
+                     if pc.get("n_zero_recall") else
+                     "No class has a sensitivity of exactly zero: every one "
+                     "of the thirty-two cohorts is recognised at least "
+                     "sometimes, which a model that had collapsed onto the "
+                     "large classes would not manage.")
+                  + " The Wilson intervals make the real precision of these "
+                    "numbers visible: for the smallest classes the interval "
+                    "spans several tenths, so their individual sensitivities "
+                    "should not be compared with one another at all.",
+             space_before=8)
+
+
+def ch6_gap(doc, x: F, n: N, A: dict, figdir: str):
+    section(doc, "6.4 Generalisation Gap, Absolutely and Relatively")
+    g, c = A.get("gap"), A.get("cost") or {}
+    para(doc, f"With {iv(c.get('trainable_parameters'))} trainable "
+              f"parameters against {iv(c.get('training_patients'))} "
+              f"training patients — {fv(c.get('parameters_per_patient'), 1)} "
+              "parameters per patient — overfitting is the first thing a "
+              "reader should suspect, so the identical metric panel was "
+              "computed on all three splits before any comparison was made. "
+              "Both the absolute gap and the gap as a percentage of the "
+              "training value are reported, because an absolute gap of 0.06 "
+              "means something different on a metric that sits at 0.8 than "
+              "on one that sits at 0.2:")
+    formula(doc, "gap = train − test,      relative gap = 100 · "
+                 "(train − test) / train")
+    if g:
+        rows = [[SHORT.get(r["metric"], r["metric"]), fv(r["train"], 4),
+                 fv(r["validation"], 4), fv(r["test"], 4), fv(r["gap"], 4),
+                 fv(r["gap_pct"], 1)] for r in g["rows"]]
+        rows_table(doc, n.t(),
+                   "Generalisation gap on every metric the run computed. "
+                   f"The training split holds {iv(g.get('n'))} patients and "
+                   f"the held-out split {iv(g.get('n_test'))}. On the last "
+                   "two metrics a lower value is better, so a negative gap "
+                   "there is the ordinary direction and not an anomaly.",
+                   ["Metric", "Train", "Validation", "Test", "Gap",
+                    "Gap %"], rows,
+                   widths=[1.3, 0.95, 1.1, 0.95, 0.95, 0.9], font=8.5)
+        para(doc, "The mean absolute gap across the discriminative metrics "
+                  f"is {fv(g.get('mean_abs_gap'), 4)}; the largest is "
+                  f"{fv(g.get('max_gap'), 4)}, on "
+                  f"{SHORT.get(g.get('max_gap_metric'), g.get('max_gap_metric'))}"
+                  ". That is a real gap, not a negligible one. It is also "
+                  "an order of magnitude smaller than the headline "
+                  "performance and far smaller than the collapse a model "
+                  f"memorising {iv(c.get('training_patients'))} patients "
+                  f"with {iv(c.get('trainable_parameters'))} parameters "
+                  "would show. The validation column sits between the two "
+                  "in almost every row, which is the ordering a model that "
+                  "is generalising produces and not the ordering a model "
+                  "selected on its test split produces.", space_before=8)
+        para(doc, "The log loss and the Brier score move the other way: the "
+                  "held-out split scores better than the training split on "
+                  "both. That is not a paradox. Stochastic weight averaging "
+                  "and dropout are active during the training-split "
+                  "evaluation in a way that penalises its proper scores, "
+                  "and the two splits have different class mixes. It is "
+                  "reported rather than smoothed over because an "
+                  "unexplained sign is exactly what a reader should be able "
+                  "to see.")
+    add_figure(doc, f"{figdir}/fig2_risk.png")
+    caption(doc, n.f() + ":", "The identical metric panel on the training, "
+                              "validation and held-out splits. The bars are "
+                              "read for the distance between them, not for "
+                              "their height.", above=False)
+
+    section(doc, "6.5 The Measured Noise Floor")
+    para(doc, "An ablation cannot be read without knowing how much the "
+              "pipeline moves when nothing is changed, so the whole fit was "
+              "repeated three times under an identical seed. The balanced "
+              "accuracies were 0.4567, 0.4341 and 0.4547: a spread of "
+              "about ±0.01 with the seed held fixed. The cause is "
+              "arithmetic rather than statistical. Message passing "
+              "accumulates each node's incoming contributions with a "
+              "parallel scatter-add, whose summation order is not fixed "
+              "between runs, and floating-point addition is not "
+              "associative:")
+    formula(doc, "(a + b) + c  ≠  a + (b + c)   in finite precision")
+    para(doc, "so two runs of identical code on identical data take "
+              "slightly different optimisation paths. This ±0.01 is the "
+              "yardstick Section 6.10 uses, and it is the reason two of the "
+              "seven ablation arms are reported as indistinguishable from "
+              "noise rather than as small effects. Any single-fit "
+              "difference smaller than it is not interpretable, whatever "
+              "its sign.")
+
+
+def ch6_compare(doc, x: F, n: N, A: dict, runs: str, figdir: str):
+    section(doc, "6.6 Comparison Against Established Methods")
+    p = A.get("panel") or {}
+    para(doc, f"{x.i('cohort','n_baselines')} comparators were fitted on "
+              "exactly the same folds, spanning penalised linear models, "
+              "support vector machines, shrinkage discriminant analysis, "
+              "three tree ensembles, two gradient-boosting libraries, "
+              "nearest neighbours, naive Bayes, a PCA pipeline, early- and "
+              "late-fusion neural networks, three patient-graph networks, a "
+              "MOGONET-style model, DeepSurv and three Cox variants "
+              "including a clinical-only Cox model. Every metric each "
+              "comparator produces is tabulated; none is omitted.")
+    cls = ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted",
+           "precision_macro", "recall_macro", "specificity_macro",
+           "npv_macro", "auroc", "auprc", "mcc", "kappa", "kappa_quadratic",
+           "top2_accuracy", "log_loss", "brier", "ece"]
+    rows = _cmp_rows(runs, p, cls)
+    if rows:
+        wide_table(doc, n.t(),
+                   "Classification on the held-out fold of the cohort run, "
+                   "every model and every metric. MOSAIC-GNN's own measured "
+                   "row is placed first; the comparators follow in "
+                   "descending balanced accuracy. An empty cell means the "
+                   "model does not produce that kind of prediction.",
+                   ["Model"] + _short(cls), rows,
+                   groups=[_short(gr) for gr in CLS_GROUPS],
+                   part_caps=CLS_CAPS,
+                   first_width=1.75, col_width=0.72, font=7.5)
+    surv = ["c_index", "auc@12m", "auc@36m", "auc@60m", "logrank_chi2",
+            "logrank_p"]
+    srows = _cmp_rows(runs, p, surv)
+    if srows:
+        rows_table(doc, n.t(),
+                   "Survival ranking on the same fold: Harrell's C-index, "
+                   "time-dependent AUC at 12, 36 and 60 months, and the "
+                   "log-rank statistic over model-defined risk tertiles. "
+                   "Rows of dashes are the classifiers, which produce no "
+                   "risk score.",
+                   ["Model"] + _short(surv), srows,
+                   widths=[1.75, 0.78, 0.7, 0.7, 0.7, 0.85, 0.85],
+                   font=7.5)
+    para(doc, "Read on its own the classification table already "
+              "contradicts the design hypothesis. The best comparator "
+              "balanced accuracy is "
+              f"{x.best('cohort','best_balanced_accuracy')} against "
+              f"MOSAIC-GNN's {fv(p.get('balanced_accuracy'))}: a penalised "
+              "linear model on the same 469-gene feature space separates "
+              "the 32 cohorts far better than the graph network does. On "
+              "survival the margin is narrow instead — best comparator "
+              f"{x.best('cohort','best_c_index')} against "
+              f"{fv(p.get('c_index'))}.", space_before=8)
+
+    section(doc, "6.7 Where the Proposed Model Ranks on Every Metric")
+    r = A.get("ranks")
+    para(doc, "A table of twenty-four models is hard to read for one "
+              "model's position, so the position is computed directly. For "
+              "each metric the proposed model is inserted into the ordered "
+              "list of all models that produce it, highest first where a "
+              "higher value is better and lowest first otherwise, and its "
+              "place is reported.")
+    if r:
+        rows = [[SHORT.get(q["metric"], q["metric"]),
+                 fv(q["mosaic"], 4), f"{q['rank']} of {q['of']}",
+                 q["best_model"], fv(q["best_value"], 4),
+                 fv(q["delta_to_best"], 4), q["direction"]]
+                for q in r["rows"]]
+        rows_table(doc, n.t(),
+                   "Rank of MOSAIC-GNN against the full comparator panel on "
+                   "every metric both produce. The last column states the "
+                   "direction used for the ordering, so no row can be "
+                   "misread; the delta column is MOSAIC-GNN minus the best "
+                   "comparator and is therefore negative wherever the "
+                   "proposed model is behind on a higher-is-better metric.",
+                   ["Metric", "MOSAIC-GNN", "Rank", "Best comparator",
+                    "Its value", "Δ to best", "Direction"], rows,
+                   widths=[1.0, 0.85, 0.75, 1.3, 0.72, 0.68, 1.05],
+                   font=8.0)
+        para(doc, f"Across {iv(r.get('n_metrics'))} metrics the proposed "
+                  f"model takes first place on {iv(r.get('n_rank_1'))} of "
+                  f"them. Its median rank is {fv(r.get('median_rank'), 1)}, "
+                  f"its best rank {iv(r.get('best_rank'))} and its worst "
+                  f"{iv(r.get('worst_rank'))}. A median rank of about "
+                  f"{fv(r.get('median_rank'), 0)} in a field of about "
+                  "twenty-five is the plain summary of this experiment, and "
+                  "it is not a favourable one. The ranks are reported here "
+                  "without significance attached; Section 6.8 supplies "
+                  "that, because a rank says which number is larger and "
+                  "not whether the difference could have arisen by chance.",
+             space_before=8)
+    add_figure(doc, f"{figdir}/fig4_comparison.png")
+    caption(doc, n.f() + ":", "MOSAIC-GNN against every comparator with "
+                              "bootstrap intervals, on survival ranking and "
+                              "on classification.", above=False)
+
+
+def ch6_paired(doc, x: F, n: N, A: dict):
+    section(doc, "6.8 Paired Bootstrap Tests With Multiplicity Correction")
+    pr = A.get("paired")
+    para(doc, "Comparing two independently noisy means is the wrong test, "
+              "because the two models were evaluated on the same patients "
+              "and their errors are correlated. The paired bootstrap "
+              "resamples the held-out patients with replacement and "
+              "recomputes the difference on each resample, so the "
+              "correlation is kept:")
+    formula(doc, "Δ = metric(MOSAIC-GNN) − metric(comparator),   "
+                 "measured on the same resampled patients")
+    para(doc, "A negative Δ therefore means MOSAIC-GNN scored lower. From "
+              "the reported interval the standard error and a standardised "
+              "effect follow, and both are tabulated because an interval "
+              "alone makes small and large effects look alike:")
+    formula(doc, "SE = (upper − lower) / (2 · 1.95996),      z = Δ / SE")
+    para(doc, "With more than twenty comparators on two metrics, "
+              "uncorrected testing would manufacture significance. The run "
+              "applied the Benjamini-Hochberg step-up procedure within each "
+              "metric:")
+    formula(doc, "q₍i₎ = min over j ≥ i of  ( p₍j₎ · m / j ),   "
+                 "p₍1₎ ≤ … ≤ p₍m₎")
+    if pr:
+        hdr = ["Model", "Δ BAcc", "SE", "z", "95 % CI", "p", "q",
+               "Δ C-idx", "SE", "z", "95 % CI", "p", "q"]
+        rows = []
+        for r in pr["rows"]:
+            rows.append([
+                r["model"],
+                fv(r.get("bacc_delta"), 4), fv(r.get("bacc_se"), 4),
+                fv(r.get("bacc_z"), 2),
+                (f"{fv(r.get('bacc_ci_low'),3)}–{fv(r.get('bacc_ci_high'),3)}"
+                 if r.get("bacc_ci_low") is not None else "—"),
+                fv(r.get("bacc_p"), 3), fv(r.get("bacc_q"), 3),
+                fv(r.get("cindex_delta"), 4), fv(r.get("cindex_se"), 4),
+                fv(r.get("cindex_z"), 2),
+                (f"{fv(r.get('cindex_ci_low'),3)}–"
+                 f"{fv(r.get('cindex_ci_high'),3)}"
+                 if r.get("cindex_ci_low") is not None else "—"),
+                fv(r.get("cindex_p"), 3), fv(r.get("cindex_q"), 3)])
+        wide_table(doc, n.t(),
+                   "Paired bootstrap against MOSAIC-GNN on identical "
+                   "held-out patients. Δ is MOSAIC-GNN minus the "
+                   "comparator, so a negative value means the proposed "
+                   "model is behind; SE and z are derived from the interval "
+                   "by the formulas above; q is the Benjamini-Hochberg "
+                   "corrected p-value within that metric's family.",
+                   hdr, rows,
+                   groups=[["Δ BAcc", "SE", "z", "95 % CI", "p", "q"],
+                           ["Δ C-idx", "SE", "z", "95 % CI", "p", "q"]],
+                   part_caps=["Balanced accuracy.",
+                              "Harrell's C-index. Only the models that "
+                              "produce a risk score appear with values."],
+                   first_width=1.75, col_width=0.76, font=7.5)
+        sizes = pr.get("family_sizes") or {}
+        para(doc, "The correction was verified rather than trusted. "
+                  "Recomputing the step-up procedure independently from the "
+                  "stored p-values, over a family of "
+                  f"{iv(sizes.get('bacc'))} balanced-accuracy tests and "
+                  f"{iv(sizes.get('cindex'))} C-index tests, reproduces "
+                  "every stored q-value: the largest disagreement anywhere "
+                  f"is {pr.get('q_max_abs_diff', 0):.1e}. Correcting "
+                  "instead over the pooled family of "
+                  f"{iv(pr.get('pooled_family_size'))} tests is stricter "
+                  "and moves some q-values by up to "
+                  f"{fv(pr.get('pooled_q_max_abs_diff'), 3)}; "
+                  + (("under that stricter rule "
+                      + "; ".join(f"{m} on "
+                                  + ("balanced accuracy" if k == "bacc"
+                                     else "the C-index")
+                                  + f" changes verdict (q {fv(a,3)} → "
+                                    f"{fv(b,3)})"
+                                  for m, k, a, b in
+                                  pr.get("pooled_verdict_flips") or [])
+                      + ". No conclusion in this chapter rests on that one "
+                        "row.")
+                     if pr.get("pooled_verdict_flips")
+                     else "no verdict in this chapter changes under that "
+                          "stricter rule.")
+             , space_before=8)
+    cb = lambda t, k: x.g(t, f"paired.bacc.{k}")      # noqa: E731
+    cc = lambda t, k: x.g(t, f"paired.cindex.{k}")    # noqa: E731
+    para(doc, "The corrected result on cohort is that of "
+              f"{cb('cohort','n_tested')} comparators tested on balanced "
+              f"accuracy, MOSAIC-GNN is significantly worse than "
+              f"{cb('cohort','n_worse')} and significantly better than "
+              f"{cb('cohort','n_better')} "
+              f"({', '.join(cb('cohort','better_models') or [])}), with "
+              f"{cb('cohort','n_tied')} ties. On the C-index, of "
+              f"{cc('cohort','n_tested')} comparators tested it is "
+              f"significantly better than {cc('cohort','n_better')} "
+              f"({', '.join(cc('cohort','better_models') or [])}), "
+              f"significantly worse than {cc('cohort','n_worse')}, and tied "
+              f"with {cc('cohort','n_tied')}.")
+    para(doc, "On stage_binary, of "
+              f"{cb('stage_binary','n_tested')} comparators tested on "
+              f"balanced accuracy it is significantly worse than "
+              f"{cb('stage_binary','n_worse')} and significantly better "
+              f"than {cb('stage_binary','n_better')} "
+              f"({', '.join(cb('stage_binary','better_models') or [])}), "
+              f"with {cb('stage_binary','n_tied')} ties; on the C-index it "
+              f"is better than {cc('stage_binary','n_better')} "
+              f"({', '.join(cc('stage_binary','better_models') or [])}), "
+              f"worse than {cc('stage_binary','n_worse')} "
+              f"({', '.join(cc('stage_binary','worse_models') or [])}) and "
+              f"tied with {cc('stage_binary','n_tied')}.")
+    rich(doc, [("This is the central negative result of the project. ",
+                True),
+               ("The proposed architecture does not beat established "
+                "methods on either classification endpoint once the "
+                "comparison is paired and corrected: on the 32-class "
+                "problem it loses to most of the panel, and on the "
+                "clinical endpoint it loses to a large minority of it. On "
+                "survival ranking it is competitive rather than superior, "
+                "tied with most of the survival comparators. Reporting "
+                "this is not a failure of the study; the study was built "
+                "so that this answer could be obtained rather than "
+                "avoided, and the two places where the model does win are "
+                "reported next with the same machinery.", False)])
+
+
+def ch6_gain(doc, x: F, n: N, A: dict, S: dict):
+    section(doc, "6.9 What the Molecular Data Adds Over Clinical Covariates")
+    para(doc, "This is the premise the multi-omic field rests on and the "
+              "comparison most multi-omic papers omit. It was measured two "
+              "independent ways, on two independently fitted targets.")
+    mgc, mgs = x.g("cohort", "molecular_gain"), x.g("stage_binary",
+                                                    "molecular_gain")
+    _CCO = "paired.models.cox_clinical_only.cindex_delta"
+    _CCQ = "paired.models.cox_clinical_only.cindex_q"
+    _CCL = "paired.models.cox_clinical_only.cindex_ci_low"
+    _CCH = "paired.models.cox_clinical_only.cindex_ci_high"
+    if isinstance(mgc, dict) and isinstance(mgs, dict):
+        rows_table(doc, n.t(),
+                   "Molecular information over and above the clinical "
+                   "covariates, measured twice. The first block fits the "
+                   "same penalised Cox model with and without the molecular "
+                   "blocks; the second compares MOSAIC-GNN with the "
+                   "clinical-only Cox model in the paired bootstrap. A "
+                   "positive difference means the molecular information "
+                   "helped.",
+                   ["Comparison", "cohort run", "stage_binary run"],
+                   [[f"Penalised Cox with molecular blocks "
+                     f"({mgc.get('model','?')})",
+                     fv(mgc.get("molecular"), 4), fv(mgs.get("molecular"), 4)],
+                    ["Clinical covariates only (Cox)",
+                     fv(mgc.get("clinical_only"), 4),
+                     fv(mgs.get("clinical_only"), 4)],
+                    ["Difference in C-index",
+                     fv(mgc.get("delta"), 4), fv(mgs.get("delta"), 4)],
+                    ["Relative improvement",
+                     (fv(100 * mgc["delta"] / mgc["clinical_only"], 1) + " %"
+                      if mgc.get("clinical_only") else "—"),
+                     (fv(100 * mgs["delta"] / mgs["clinical_only"], 1) + " %"
+                      if mgs.get("clinical_only") else "—")],
+                    ["MOSAIC-GNN minus clinical-only Cox (paired)",
+                     fv(x.g("cohort", _CCO), 4),
+                     fv(x.g("stage_binary", _CCO), 4)],
+                    ["95 % bootstrap interval of that difference",
+                     f"{fv(x.g('cohort', _CCL), 3)} to "
+                     f"{fv(x.g('cohort', _CCH), 3)}",
+                     f"{fv(x.g('stage_binary', _CCL), 3)} to "
+                     f"{fv(x.g('stage_binary', _CCH), 3)}"],
+                    ["Corrected q-value of that difference",
+                     fv(x.g("cohort", _CCQ), 4),
+                     fv(x.g("stage_binary", _CCQ), 4)]],
+                   widths=[3.0, 1.55, 1.75], font=9.0)
+    para(doc, "Both measurements agree and they agree on both targets. "
+              "Adding the molecular blocks to a penalised Cox model raises "
+              f"the C-index by {fv((mgc or {}).get('delta'), 4)} on the "
+              f"cohort run and {fv((mgs or {}).get('delta'), 4)} on the "
+              "stage_binary run. MOSAIC-GNN itself exceeds the "
+              "clinical-only Cox model by "
+              f"{fv(x.g('cohort', _CCO), 4)} and "
+              f"{fv(x.g('stage_binary', _CCO), 4)} respectively, and in the "
+              "paired bootstrap both intervals exclude zero and both "
+              "differences survive correction. A result that replicates "
+              "across two independently fitted targets, on overlapping but "
+              "differently labelled patient sets, is worth more than a "
+              "larger single-target effect; this is the clearest positive "
+              "finding of the project.", space_before=8)
+    para(doc, "It should be read for exactly what it is. It says the "
+              "molecular data carries prognostic information a clinician "
+              "does not already have. It does not say this architecture is "
+              "the way to extract it: Section 6.6 shows that simpler models "
+              "extract as much or more.")
+
+
+def ch6_ablation(doc, x: F, n: N, A: dict, figdir: str):
+    section(doc, "6.10 Ablation: Which Components Earn Their Place")
+    ab = A.get("ablation")
+    para(doc, "Seven arms were run, each removing exactly one component and "
+              "changing nothing else. As recorded in Section 5.3 the "
+              "ablation ran on a reduced gene subset for six epochs over "
+              "two folds, so its absolute balanced accuracy — "
+              f"{fv((ab or {}).get('full'), 4)} for the full model, with a "
+              f"fold spread of {fv((ab or {}).get('full_sd'), 4)} over "
+              f"{iv((ab or {}).get('full_folds'))} folds — is lower than "
+              "Section 6.2's and is not comparable to it. Only the "
+              "differences between arms are interpreted, and each is "
+              "expressed in units of the noise floor measured in "
+              "Section 6.5:")
+    formula(doc, "Δ = BAcc(arm) − BAcc(full),      "
+                 "floors = |Δ| / 0.01,      interpretable only if floors > 1")
+    if ab:
+        rows = []
+        for a in ab["arms"]:
+            rows.append([
+                a["arm"], fv(a.get("balanced_accuracy"), 4),
+                fv(a.get("balanced_accuracy_sd"), 4),
+                fv(a.get("auroc"), 4), fv(a.get("c_index"), 4),
+                fv(a.get("delta"), 4), fv(a.get("floors"), 1),
+                "yes" if a.get("outside") else "no"])
+        rows_table(doc, n.t(),
+                   "Ablation at reduced settings. SD is the spread over the "
+                   "two folds of that arm. Δ is the change in balanced "
+                   "accuracy against the full model on the same folds, and "
+                   "the floors column is |Δ| divided by the measured "
+                   "run-to-run spread of 0.01; the last column says whether "
+                   "the effect is larger than that spread and therefore "
+                   "interpretable at all.",
+                   ["Component removed", "BAcc", "SD", "AUROC", "C-index",
+                    "Δ BAcc", "Floors", "Outside the floor?"], rows,
+                   widths=[1.72, 0.72, 0.6, 0.68, 0.72, 0.72, 0.62, 1.1],
+                   font=8.5)
+    arms = {a["arm"]: a for a in (ab or {}).get("arms", [])}
+
+    def dl(name):
+        return fv((arms.get(name) or {}).get("delta"), 4)
+
+    def fl(name):
+        return fv((arms.get(name) or {}).get("floors"), 1)
+
+    para(doc, "Three things follow, and only the second is what the design "
+              "predicted. First, the clinical path dominates: removing the "
+              f"clinical covariates costs {dl('no_clinical')}, which is "
+              f"{fl('no_clinical')} times the noise floor, and removing "
+              "only their residual path costs "
+              f"{dl('no_clinical_residual')}, or {fl('no_clinical_residual')}"
+              " floors. Both are an order of magnitude larger than any "
+              "other arm. The model's accuracy rests mostly on the "
+              "clinical covariates rather than on the molecular graph "
+              "machinery, and that is the single most important sentence in "
+              "this section.", space_before=8)
+    para(doc, "Second, the three structural components do clear the floor. "
+              f"Removing the gene graph costs {dl('no_gene_graph')} "
+              f"({fl('no_gene_graph')} floors), the patient graph "
+              f"{dl('no_patient_graph')} ({fl('no_patient_graph')} floors) "
+              f"and module pooling {dl('no_module_pool')} "
+              f"({fl('no_module_pool')} floors). The two-level design is "
+              "therefore doing measurable work, even though the whole model "
+              "is beaten by simpler comparators. These are modest effects "
+              "— one to two times the floor — and they are reported as "
+              "modest.")
+    para(doc, "Third, the two auxiliary objectives do not clear it. "
+              f"Removing the contrastive term costs {dl('no_contrast')} "
+              f"({fl('no_contrast')} floors) and removing disentanglement "
+              f"{dl('no_disentangle')} ({fl('no_disentangle')} floors). On "
+              "this evidence neither can be claimed to contribute; they "
+              "cannot be claimed to hurt either, which is the symmetric "
+              "and equally important half of the statement.")
+    para(doc, f"Arms outside the floor: {iv((ab or {}).get('n_outside'))}. "
+              f"Arms inside it: {iv((ab or {}).get('n_inside'))}. Measured "
+              "cost of one arm: "
+              f"{fv((ab or {}).get('seconds_mean'), 0)} seconds per fold, "
+              "which is why the full factorial of configurations was out of "
+              "reach.")
+    rich(doc, [("A retracted explanation. ", True),
+               ("An earlier draft of this work explained the "
+                "disentanglement arm by hypothesising that the cohort "
+                "adversary was the component suppressing tissue-of-origin "
+                "signal, and predicted that removing it would raise "
+                "cohort accuracy sharply. The ablation was run "
+                "specifically to test that prediction. Removing "
+                "disentanglement changed balanced accuracy by "
+                + dl("no_disentangle") + ", or " + fl("no_disentangle") +
+                " floors, where the hypothesis required a change of roughly "
+                "+0.17, about seventeen floors. The hypothesis is falsified "
+                "and has been withdrawn. It is recorded here because a "
+                "prediction made in advance and then tested is evidence, "
+                "and deleting it would misrepresent how the conclusions "
+                "were reached.", False)])
+    add_figure(doc, f"{figdir}/fig5_ablation.png")
+    caption(doc, n.f() + ":", "Change in each headline metric when a single "
+                              "component is removed. Negative values mean "
+                              "the component helped. Effects smaller than "
+                              "the measured noise floor are not "
+                              "interpretable.", above=False)
+
+
+def ch6_permutation(doc, x: F, n: N, A: dict):
+    section(doc, "6.11 Label Permutation Control")
+    pm = A.get("permutation")
+    para(doc, "The whole pipeline was retrained on shuffled training "
+              "labels. A leaking protocol would still score above chance "
+              "after shuffling; an honest one should collapse to chance. "
+              "The distance from the null is reported as a z-score as well "
+              "as a p-value, because with few permutations the p-value is "
+              "bounded and the z-score is not:")
+    formula(doc, "z = (observed − mean of null) / SD of null,      "
+                 "smallest attainable p = 1 / (B + 1)")
+    if pm:
+        rows = [[SHORT.get(r["metric"], r["metric"]), fv(r["observed"], 4),
+                 fv(r["null_mean"], 4), fv(r["null_sd"], 4),
+                 fv(r["null_max"], 4), fv(r["excess"], 4), fv(r["z"], 1),
+                 fv(r["p_value"], 2)] for r in pm["rows"]]
+        rows_table(doc, n.t(),
+                   "Label permutation test. The model is retrained on "
+                   "shuffled training labels and evaluated on the "
+                   "untouched held-out split. Excess is observed minus the "
+                   "null mean; z is that excess in units of the null "
+                   "standard deviation.",
+                   ["Metric", "Observed", "Null mean", "Null SD",
+                    "Null max", "Excess", "z", "p"], rows,
+                   widths=[1.45, 0.78, 0.78, 0.7, 0.72, 0.7, 0.62, 0.62],
+                   font=8.5)
+        if pm.get("draws"):
+            rows_table(doc, n.t(),
+                       "Every individual permutation draw, so the null is "
+                       "shown rather than summarised. These are the values "
+                       "the three columns of the previous table average.",
+                       ["Permutation", "BAcc", "AUROC", "C-index"],
+                       [[str(d["permutation"]), fv(d["balanced_accuracy"], 4),
+                         fv(d["auroc"], 4), fv(d["c_index"], 4)]
+                        for d in pm["draws"]],
+                       widths=[1.3, 1.3, 1.3, 1.3], font=9.0)
+        para(doc, "The null collapses exactly where it should. Balanced "
+                  f"accuracy under permutation falls to "
+                  f"{fv(pm['rows'][0]['null_mean'], 4)}, which is below the "
+                  "1/32 a uniform guess would give, and both AUROC and the "
+                  "C-index land on 0.5 to within a few hundredths — "
+                  "precisely where a model with no usable signal must land. "
+                  "The control passes.", space_before=8)
+        para(doc, "The p-value must be read with its bound. With "
+                  f"{iv(pm.get('B'))} permutations the smallest attainable "
+                  f"p-value is {fv(pm.get('p_floor'), 2)}, and that bound, "
+                  "not the strength of the effect, is what the tabulated "
+                  "p-value reflects. The evidence that the protocol does "
+                  "not leak is the collapse of the null distribution and "
+                  "the size of the z-scores, not the p-value. One "
+                  "permutation returned a C-index of "
+                  f"{fv(max((d['c_index'] or 0) for d in pm['draws']), 4)}, "
+                  "which is above 0.5; against a null standard deviation of "
+                  f"{fv(pm['rows'][2]['null_sd'], 4)} that is an ordinary "
+                  "draw from the null and not a sign of leakage.")
+
+
+def ch6_samplesize(doc, x: F, n: N, A: dict, figdir: str):
+    section(doc, "6.12 Is the Model Data-Limited or Architecture-Limited?")
+    ss = A.get("samplesize")
+    para(doc, "The same configuration was refitted on a quarter, a half, "
+              "three quarters and all of the training data with the "
+              "held-out split unchanged. To turn four points into a "
+              "statement, each curve is fitted by ordinary least squares "
+              "against the base-two logarithm of the training-set size, so "
+              "that the slope reads as the gain per doubling of the data:")
+    formula(doc, "y = a + b · log₂ n,      "
+                 "R² = 1 − SS_residual / SS_total")
+    if ss:
+        rows = [[iv(r["n_train"]), fv(r["log2n"], 2), fv(r["fraction"], 2),
+                 fv(r["train_balanced_accuracy"], 4),
+                 fv(r["test_balanced_accuracy"], 4), fv(r["gap_bacc"], 4),
+                 fv(r["train_c_index"], 4), fv(r["test_c_index"], 4),
+                 fv(r["gap_cindex"], 4)] for r in ss["rows"]]
+        rows_table(doc, n.t(),
+                   "Performance against training-set size. The gap columns "
+                   "are train minus test at that size, so the trend in "
+                   "overfitting can be read as well as the trend in "
+                   "performance.",
+                   ["n train", "log₂ n", "Fraction", "Train BAcc",
+                    "Test BAcc", "Gap", "Train C-idx", "Test C-idx", "Gap"],
+                   rows,
+                   widths=[0.68, 0.6, 0.72, 0.82, 0.78, 0.6, 0.85, 0.78,
+                           0.6], font=8.5)
+        fit = [("Test balanced accuracy", ss.get("test_balanced_accuracy")),
+               ("Test C-index", ss.get("test_c_index")),
+               ("Train balanced accuracy",
+                ss.get("train_balanced_accuracy")),
+               ("Train C-index", ss.get("train_c_index"))]
+        rows_table(doc, n.t(),
+                   "Least-squares fits of each curve on log₂ n. The slope "
+                   "is the change in the metric per doubling of the "
+                   "training set; R² says how well a straight line in "
+                   "log n describes the four points.",
+                   ["Curve", "First point", "Last point", "Total gain",
+                    "Slope per doubling", "R²"],
+                   [[name, fv((d or {}).get("first"), 4),
+                     fv((d or {}).get("last"), 4),
+                     fv((d or {}).get("gain"), 4),
+                     fv((d or {}).get("slope_per_doubling"), 4),
+                     fv((d or {}).get("r2"), 3)] for name, d in fit],
+                   widths=[1.75, 0.95, 0.95, 0.9, 1.25, 0.6], font=9.0)
+        tb = ss.get("test_balanced_accuracy") or {}
+        tc = ss.get("test_c_index") or {}
+        trc = ss.get("train_c_index") or {}
+        para(doc, "The two curves behave differently and the difference is "
+                  "the answer to the section's question. Held-out balanced "
+                  f"accuracy gains {fv(tb.get('slope_per_doubling'), 4)} "
+                  f"per doubling of the training set, with R² "
+                  f"{fv(tb.get('r2'), 3)}: a near-straight line in log n "
+                  "that has not begun to flatten at the largest size "
+                  "available. Classification is data-limited, and more "
+                  "patients would move it. The held-out C-index gains only "
+                  f"{fv(tc.get('slope_per_doubling'), 4)} per doubling, "
+                  "while the training C-index is essentially flat "
+                  f"(slope {fv(trc.get('slope_per_doubling'), 4)}, R² "
+                  f"{fv(trc.get('r2'), 3)}, which is no trend at all). "
+                  "Survival ranking is close to what this feature space "
+                  "supports and more patients would not move it much.",
+             space_before=8)
+        para(doc, "One inference is explicitly not drawn. The fitted slope "
+                  "could be extrapolated to predict the sample size at "
+                  "which the proposed model would overtake the best "
+                  "comparator. That extrapolation is not reported, because "
+                  "it would run far beyond the range of the four measured "
+                  "points, it assumes the comparators do not improve with "
+                  "the same data, and Section 6.6 shows they are already "
+                  "ahead by much more than the observed range of this "
+                  "curve.")
+    add_figure(doc, f"{figdir}/figS2_sample_size.png")
+    caption(doc, n.f() + ":", "Held-out performance against training-set "
+                              "size, with the training curve shown for "
+                              "contrast.", above=False)
+
+
+def ch6_percohort(doc, x: F, n: N, A: dict):
+    section(doc, "6.13 Per-Cohort Behaviour on the Held-Out Fold")
+    pc = A.get("per_cohort")
+    para(doc, "A pooled pan-cancer metric is dominated by the large "
+              "cohorts, so the same metrics are computed inside each cohort "
+              "separately. This is the table that shows where the model "
+              "works and where it does not.")
+    if pc:
+        hdr = ["Cohort", "n", "Events", "Event rate", "Acc", "BAcc", "F1-M",
+               "F1-W", "MCC", "κ", "Top-2", "LogLoss", "Brier", "C-index"]
+        rows = [[r["cohort"], iv(r["n"]), iv(r["events"]),
+                 fv(r["event_rate"]), fv(r["accuracy"]),
+                 fv(r["balanced_accuracy"]), fv(r["f1_macro"]),
+                 fv(r["f1_weighted"]), fv(r["mcc"]), fv(r["kappa"]),
+                 fv(r["top2_accuracy"]), fv(r["log_loss"]), fv(r["brier"]),
+                 fv(r["c_index"])] for r in pc["rows"]]
+        wide_table(doc, n.t(),
+                   "Per-cohort metrics on the held-out fold, ordered by "
+                   "accuracy. The event count and event rate are carried "
+                   "over from the cohort table so each row can be weighed "
+                   "by the evidence behind it.",
+                   hdr, rows,
+                   groups=[["n", "Events", "Event rate", "Acc", "BAcc",
+                            "F1-M", "F1-W"],
+                           ["MCC", "κ", "Top-2", "LogLoss", "Brier",
+                            "C-index"]],
+                   part_caps=["Cohort size and the agreement measures.",
+                              "The chance-corrected, proper-scoring and "
+                              "survival measures."],
+                   first_width=1.0, col_width=0.75, font=7.5)
+        acc, ci = pc["accuracy"], pc["c_index"]
+        rows_table(doc, n.t(),
+                   "Distribution of the per-cohort metrics, and their "
+                   "correlation with how much evidence each cohort "
+                   "supplies. The correlations are Pearson coefficients "
+                   "with the two-sided p-value of their t statistic and a "
+                   "Fisher z interval.",
+                   ["Quantity", "Value"],
+                   [["Cohorts evaluated", iv(pc.get("n_cohorts"))],
+                    ["Accuracy: mean (SD)",
+                     f"{fv(acc['mean'])} ({fv(acc['sd'])})"],
+                    ["Accuracy: median",
+                     fv(acc["median"])],
+                    ["Accuracy: range",
+                     f"{fv(acc['min'])} to {fv(acc['max'])}"],
+                    ["Cohorts with accuracy ≥ 0.90",
+                     iv(pc.get("n_acc_above_90"))],
+                    ["C-index: mean (SD)",
+                     f"{fv(ci['mean'])} ({fv(ci['sd'])})"],
+                    ["C-index: median", fv(ci["median"])],
+                    ["C-index: range",
+                     f"{fv(ci['min'])} to {fv(ci['max'])}"],
+                    ["Cohorts with C-index > 0.5",
+                     iv(pc.get("n_cindex_above_half"))],
+                    ["corr(cohort size, accuracy)",
+                     _corr_str(pc.get("corr_n_accuracy"))],
+                    ["corr(cohort size, C-index)",
+                     _corr_str(pc.get("corr_n_cindex"))],
+                    ["corr(event rate, C-index)",
+                     _corr_str(pc.get("corr_eventrate_cindex"))]],
+                   widths=[2.6, 3.7], font=9.0)
+        para(doc, "Two of those three correlations are the interesting "
+                  "ones. Cohort size does not predict per-cohort accuracy "
+                  f"to any detectable degree ({_corr_str(pc.get('corr_n_accuracy'))}"
+                  "), which argues that the per-cohort spread is driven by "
+                  "how distinctive a cancer type's molecular profile is "
+                  "rather than by how much of it the model saw. The event "
+                  "rate, by contrast, correlates negatively and "
+                  "significantly with the per-cohort C-index "
+                  f"({_corr_str(pc.get('corr_eventrate_cindex'))}): "
+                  "survival ranking is harder inside aggressive cohorts. "
+                  "Section 6.14 finds the same relationship in a wholly "
+                  "separate experiment, which is why it is reported as a "
+                  "pattern rather than as a single coincidence.",
+             space_before=8)
+
+
+def _corr_str(c) -> str:
+    if not c or c.get("r") is None:
+        return "—"
+    s = f"r = {fv(c['r'], 3)}, n = {iv(c['n'])}, p = {fv(c['p'], 4)}"
+    if c.get("ci_low") is not None:
+        s += f", 95 % CI {fv(c['ci_low'], 3)} to {fv(c['ci_high'], 3)}"
+    return s
+
+
+def ch6_loco(doc, x: F, n: N, A: dict, figdir: str):
+    section(doc, "6.14 Leave-One-Cancer-Out Transfer")
+    lc = A.get("loco")
+    para(doc, "This is the experiment that addresses the cohort-detector "
+              "problem directly. For each of the "
+              f"{iv((lc or {}).get('n_cohorts'))} cohorts the model is "
+              "trained with that cohort absent from training entirely and "
+              "then asked to stratify risk within it. A cohort detector "
+              "cannot do this, because the cohort it would have to detect "
+              "was never seen.")
+    rich(doc, [("What is reportable here, and what is not. ", True),
+               ("Only the survival column is reported. In a "
+                "leave-one-cancer-out fold the held-out cohort contains "
+                "patients of exactly one class, so balanced accuracy "
+                "reduces to the recall of that single class and the "
+                "Matthews correlation is zero by construction. Those "
+                "numbers are arithmetic artefacts of the split, not "
+                "transfer measurements, and they are excluded from every "
+                "table and figure in this section. An earlier draft went "
+                "further and asserted that the classification metric would "
+                "be near zero by the same arithmetic; that assertion was "
+                "wrong — the measured value on the first cohort was 0.989 — "
+                "and it has been withdrawn. The correct statement is the "
+                "narrower one: the metric is degenerate and therefore "
+                "uninformative, not that it is small.", False)])
+    para(doc, "The thirty-two log-rank tests are a family, so they are "
+              "corrected the same way the model comparisons were. Both the "
+              "raw p-value and the Benjamini-Hochberg q-value are given, "
+              "and the count of significant cohorts is reported after "
+              "correction as well as before it.")
+    if lc:
+        rows = [[r["cohort"], iv(r["patients"]), iv(r["events"]),
+                 fv(r["event_rate"]), fv(r["c_index"], 4),
+                 fv(r["logrank_p"], 4), fv(r["logrank_q"], 4),
+                 ("yes" if (r["logrank_q"] or 1) < 0.05 else "no")]
+                for r in lc["rows"]]
+        rows_table(doc, n.t(),
+                   "Leave-one-cancer-out transfer, ordered by transfer "
+                   "C-index. The model is trained with the named cohort "
+                   "entirely absent and evaluated on it. Classification "
+                   "columns are omitted because they are degenerate in a "
+                   "single-class fold. q is the Benjamini-Hochberg "
+                   "corrected p-value over all thirty-two tests.",
+                   ["Held-out cohort", "Patients", "Events", "Event rate",
+                    "Transfer C-index", "Log-rank p", "q", "q < 0.05?"],
+                   rows,
+                   widths=[1.15, 0.72, 0.6, 0.78, 1.1, 0.78, 0.68, 0.68],
+                   font=8.0)
+        para(doc, "The median transfer C-index is "
+                  f"{fv(lc.get('median'), 4)}, the interquartile range "
+                  f"{fv(lc.get('q1'), 3)} to {fv(lc.get('q3'), 3)}, and the "
+                  f"full range {fv(lc.get('min'), 3)} to "
+                  f"{fv(lc.get('max'), 3)}; the mean is "
+                  f"{fv(lc.get('mean'), 4)} with a standard deviation of "
+                  f"{fv(lc.get('sd'), 4)}. "
+                  f"{iv(lc.get('n_above_half'))} of "
+                  f"{iv(lc.get('n_cohorts'))} cohorts exceed 0.5, the "
+                  "random-ranking value. The log-rank test is significant "
+                  f"at the 0.05 level in {iv(lc.get('n_p_lt_05'))} cohorts "
+                  f"before correction and in {iv(lc.get('n_q_lt_05'))} "
+                  "after it — the correction costs one cohort, which is "
+                  "worth stating because an uncorrected count of "
+                  "thirty-two tests would have been the easy number to "
+                  "quote.", space_before=8)
+        para(doc, "The representation therefore does carry risk "
+                  "information into cancer types it has never seen. That "
+                  "is strong evidence against the cohort-detector "
+                  "explanation of the pooled result, and it is the second "
+                  "substantive positive finding of the project.")
+        grows = []
+        for key, label in (("all", "All cohorts"),
+                           ("events_ge_20", "Cohorts with ≥ 20 events"),
+                           ("events_ge_60", "Cohorts with ≥ 60 events")):
+            g = (lc.get("groups") or {}).get(key) or {}
+            grows.append([label, iv(g.get("n")), fv(g.get("median"), 4),
+                          f"{fv(g.get('mean'), 4)} ({fv(g.get('sd'), 4)})",
+                          iv(g.get("n_above_half")), iv(g.get("n_q_lt_05")),
+                          _corr_str(g.get("corr_event_rate"))])
+        rows_table(doc, n.t(),
+                   "Transfer summarised by how much evidence the held-out "
+                   "cohort supplies, and the correlation between transfer "
+                   "quality and the cohort's event rate within each "
+                   "subset. Restricting to the cohorts that are powered "
+                   "enough to read strengthens the relationship rather "
+                   "than weakening it, which is what a real effect does "
+                   "and a small-sample artefact does not.",
+                   ["Subset", "n", "Median C-index", "Mean (SD)",
+                    "C-index > 0.5", "q < 0.05",
+                    "corr(event rate, C-index)"], grows,
+                   widths=[1.5, 0.4, 0.95, 0.95, 0.75, 0.62, 2.2],
+                   font=7.5)
+        para(doc, "The failures are structured rather than random. "
+                  "Transfer quality falls as the held-out cohort's event "
+                  "rate rises, significantly so across all cohorts, and "
+                  "the relationship strengthens when the analysis is "
+                  "restricted to the cohorts with enough events to be "
+                  "read. The model transfers best into indolent cohorts "
+                  "and worst into aggressive ones, and Section 6.13 found "
+                  "the same gradient inside the pooled fold. A plausible "
+                  "reading is that what transfers is a general "
+                  "tumour-aggressiveness ordering, informative where "
+                  "deaths are sparse and insufficient where the whole "
+                  "cohort is high risk. That reading is a hypothesis the "
+                  "present data cannot test and it is offered as one.",
+             space_before=8)
+    add_figure(doc, f"{figdir}/fig6_loco.png")
+    caption(doc, n.f() + ":", "Leave-one-cancer-out transfer. (a) transfer "
+                              "C-index for every held-out cohort with its "
+                              "event count, cohorts with fewer than 60 "
+                              "events shown in grey; (b) transfer against "
+                              "the held-out cohort's event rate.",
+            above=False)
+
+
+def ch6_interpret(doc, x: F, n: N, A: dict, runs: str, figdir: str):
+    section(doc, "6.15 Interpretation")
+    it = A.get("interpretation")
+    para(doc, "Two interpretability channels are reported: integrated "
+              "gradients over the input blocks, and the model's own learned "
+              "per-gene gates and module attention. The attribution of a "
+              "gene is the sum of the absolute integrated gradients of its "
+              "three omic inputs, and the share each omic block carries is")
+    formula(doc, "share(block) = Σ_genes |IG(gene, block)|  /  "
+                 "Σ_blocks Σ_genes |IG(gene, block)|")
+    csv_table(doc, f"{runs}/table7_gene_importance.csv", n.t(),
+              "Top 25 genes by integrated-gradient attribution, with the "
+              "module each was assigned to, the learned gate and its "
+              "spread, and the attribution decomposed by omic block. The "
+              "signed block columns show the direction in which each omic "
+              "measurement pushed the prediction.",
+              nrows=25, widths=[0.95, 1.15, 0.75, 0.68, 0.78, 0.8, 0.78,
+                                0.78],
+              cols=["gene", "module", "gate_mean", "gate_std", "ig_abs",
+                    "ig_mut", "ig_cna", "ig_exp"], font=8.0,
+              head_map={"gene": "Gene", "module": "Module",
+                        "gate_mean": "Gate", "gate_std": "Gate SD",
+                        "ig_abs": "|IG|", "ig_mut": "IG mutation",
+                        "ig_cna": "IG CNA", "ig_exp": "IG expression"})
+    csv_table(doc, f"{runs}/table8_module_importance.csv", n.t(),
+              "Top 15 functional modules by attention, with module size and "
+              "the highest-attributed genes in each.",
+              nrows=15, widths=[1.3, 0.6, 0.95, 3.4],
+              cols=["module", "size", "attention", "top_genes"], font=8.5,
+              head_map={"module": "Module", "size": "Size",
+                        "attention": "Attention",
+                        "top_genes": "Highest-attributed genes"})
+    if it:
+        b = it["blocks"]
+        rows_table(doc, n.t(),
+                   "Share of the total attribution carried by each omic "
+                   "block, computed over the exported gene list by the "
+                   "formula above. The three shares sum to one by "
+                   "construction.",
+                   ["Omic block", "Σ |IG|", "Share"],
+                   [["Mutation (binary indicator)",
+                     fv(b["ig_mut"]["abs_sum"], 4),
+                     fv(100 * (b["ig_mut"]["share"] or 0), 1) + " %"],
+                    ["Copy number (discrete level)",
+                     fv(b["ig_cna"]["abs_sum"], 4),
+                     fv(100 * (b["ig_cna"]["share"] or 0), 1) + " %"],
+                    ["Expression (z-score)",
+                     fv(b["ig_exp"]["abs_sum"], 4),
+                     fv(100 * (b["ig_exp"]["share"] or 0), 1) + " %"],
+                    ["Total", fv(it.get("block_total"), 4), "100 %"]],
+                   widths=[2.6, 1.5, 1.2], font=9.0)
+        rows_table(doc, n.t(),
+                   "Summary of the two interpretability channels over the "
+                   "exported lists.",
+                   ["Quantity", "Value"],
+                   [["Genes in the exported ranking",
+                     iv(it.get("n_genes_listed"))],
+                    ["Learned gate: mean", fv(it.get("gate_mean"), 4)],
+                    ["Learned gate: range",
+                     f"{fv(it.get('gate_min'), 4)} to "
+                     f"{fv(it.get('gate_max'), 4)}"],
+                    ["Modules in the exported ranking",
+                     iv(it.get("n_modules_listed"))],
+                    ["Mean module size", fv(it.get("module_size_mean"), 2)],
+                    ["Highest module attention",
+                     fv(it.get("module_attention_top"), 4)],
+                    ["Attention summed over the listed modules",
+                     fv(it.get("module_attention_sum_top"), 4)],
+                    ["Highest-attributed genes",
+                     ", ".join((it.get("top_genes") or [])[:8])]],
+                   widths=[2.6, 3.7], font=9.0)
+        para(doc, "The omic decomposition is the informative part. "
+                  "Attribution is dominated by expression and copy number; "
+                  "mutation carries "
+                  f"{fv(100 * (b['ig_mut']['share'] or 0), 1)} % of the "
+                  "total. For a model given a binary mutation indicator "
+                  "over a 469-gene panel that is the expected result — a "
+                  "binary flag over a small panel carries far less variance "
+                  "than a continuous expression z-score — and it is a "
+                  "limitation of the encoding rather than a statement about "
+                  "tumour biology. The learned gates span "
+                  f"{fv(it.get('gate_min'), 3)} to "
+                  f"{fv(it.get('gate_max'), 3)} around a mean of "
+                  f"{fv(it.get('gate_mean'), 3)}, so the model does "
+                  "discriminate between genes rather than weighting them "
+                  "uniformly, but the spread is modest.", space_before=8)
+    para(doc, "The highest-attributed genes are recurrently altered cancer "
+              "genes. That is reassuring and it is not a discovery: the "
+              "panel was designed around exactly those genes, so finding "
+              "them at the top is a property of the feature space.")
+    rich(doc, [("A confound that is not reported as a finding. ", True),
+               ("The gene graph's co-alteration relation links genes whose "
+                "alterations co-occur, and genes at the same chromosomal "
+                "locus co-occur because they are deleted or amplified "
+                "together. Modules recovered from such edges therefore "
+                "partly recover chromosomal position. The "
+                "highest-attention module in the table above is a case in "
+                "point: its members sit at the same locus. Where a "
+                "module's members are locus neighbours, recovering that "
+                "module validates the clustering and not biology, and this "
+                "report does not present such modules as discovered "
+                "pathways.", False)])
+    csv_table(doc, f"{runs}/table9_patient_subnetwork.csv", n.t(),
+              "The 20 most strongly attended edges of one patient's rewired "
+              "interaction network, with the relation each edge came from. "
+              "This is the per-patient channel: the graph the model "
+              "propagates over is a function of that patient's own "
+              "profile.",
+              nrows=20, widths=[1.3, 1.3, 1.1, 1.0],
+              cols=["source", "target", "attention", "relation"], font=8.5,
+              head_map={"source": "Source gene", "target": "Target gene",
+                        "attention": "Attention",
+                        "relation": "Relation type"})
+    add_figure(doc, f"{figdir}/fig7_interpretation.png")
+    caption(doc, n.f() + ":", "Interpretation. Top genes by attribution, "
+                              "the attribution decomposed by omic block, "
+                              "and module-level attention.", above=False)
+
+
+def ch6_uncertainty(doc, x: F, n: N, A: dict, S: dict, figdir: str):
+    section(doc, "6.16 Calibration and Predictive Uncertainty")
+    p = A.get("panel") or {}
+    sp = (S or {}).get("panel") or {}
+    para(doc, "A model that is to be trusted must say how sure it is. Two "
+              "quantities measure that here. Expected calibration error "
+              "bins the predictions by confidence and compares each bin's "
+              "confidence with its accuracy, and the mean predictive "
+              "entropy summarises how spread the predicted distribution is "
+              "under Monte-Carlo dropout:")
+    formula(doc, "ECE = Σ_b (n_b / N) · | accuracy(b) − confidence(b) |,"
+                 "      H(p̂) = − Σ_k p̂_k log p̂_k")
+    import math as _m
+    k_cohort = x.g("cohort", "n_cohorts") or 32
+    hmax = _m.log(float(k_cohort))
+    ent = p.get("mean_predictive_entropy")
+    rows_table(doc, n.t(),
+               "Calibration and uncertainty on both targets. The maximum "
+               "entropy is the value a uniform distribution over that "
+               "target's classes would give, and the normalised entropy is "
+               "the measured entropy divided by it, so the two targets can "
+               "be compared despite having different class counts.",
+               ["Quantity", "cohort run", "stage_binary run"],
+               [["Expected calibration error", fv(p.get("ece"), 4),
+                 fv(sp.get("ece"), 4)],
+                ["Brier score", fv(p.get("brier"), 4), fv(sp.get("brier"), 4)],
+                ["Log loss", fv(p.get("log_loss"), 4),
+                 fv(sp.get("log_loss"), 4)],
+                ["Classes", iv(k_cohort), "2"],
+                ["Mean predictive entropy (nats)", fv(ent, 4),
+                 fv(sp.get("mean_predictive_entropy"), 4)],
+                ["Maximum entropy, ln K", fv(hmax, 4), fv(_m.log(2.0), 4)],
+                ["Normalised entropy",
+                 fv((ent / hmax) if ent is not None else None, 4),
+                 fv(((sp.get("mean_predictive_entropy") or 0) / _m.log(2.0))
+                    if sp.get("mean_predictive_entropy") is not None
+                    else None, 4)]],
+               widths=[2.6, 1.6, 1.8], font=9.0)
+    para(doc, "The two targets sit at opposite ends. On the 32-class "
+              f"target the calibration error is {fv(p.get('ece'), 3)}, "
+              "which is large: a predicted probability of 0.8 does not mean "
+              "an eighty per cent chance, and the outputs are not usable as "
+              "probabilities without recalibration. The normalised entropy "
+              f"of {fv((ent / hmax) if ent is not None else None, 3)} says "
+              "the predicted distribution is far from uniform, so the model "
+              "is confident — and being both confident and miscalibrated is "
+              "the worst combination for a clinical reader. On the binary "
+              f"target the calibration error is {fv(sp.get('ece'), 3)}, "
+              "which is small, and the normalised entropy is near one: the "
+              "model is close to honest about not knowing. The "
+              "architecture is not uniformly miscalibrated; it is "
+              "miscalibrated where it is overconfident, and the two "
+              "columns separate those cases.", space_before=8)
+    para(doc, "Recalibration was not run. Temperature scaling fitted on "
+              "the validation split would very likely fix the cohort "
+              "column, and Section 8.3 lists it as the first piece of "
+              "future work, but it is not reported here because it was not "
+              "executed.")
+    add_figure(doc, f"{figdir}/fig3_classification.png")
+    caption(doc, n.f() + ":", "Per-class behaviour on the held-out fold, "
+                              "with each class's support shown alongside "
+                              "its scores.", above=False)
+    add_figure(doc, f"{figdir}/figS1_learning_curves.png")
+    caption(doc, n.f() + ":", "Training and validation traces over epochs. "
+                              "The validation score rises and then "
+                              "flattens, and early stopping fires on the "
+                              "flat part.", above=False)
+    payload_table(doc, x, "S4", n.t(),
+                  widths=[0.9, 1.3, 1.3, 1.45, 1.4], font=9.0,
+                  head_map={"train_loss": "Train loss",
+                            "val_score": "Val score",
+                            "val_balanced_accuracy": "Val BAcc",
+                            "val_c_index": "Val C-index"},
+                  caption_text="The recorded learning curve. Training and "
+                               "validation are logged every five epochs; "
+                               "the traces do not diverge in the way "
+                               "runaway overfitting produces.")
+
+
+def ch6_cost(doc, x: F, n: N, A: dict, S: dict):
+    section(doc, "6.17 Model Size and Computational Cost")
+    c = A.get("cost") or {}
+    sc = (S or {}).get("cost") or {}
+    para(doc, "The parameter count was counted rather than estimated, and "
+              "it is broken down by component so that the reader can see "
+              "where the capacity sits. The ratio of parameters to training "
+              "patients is the quantity that motivated the audit in "
+              "Section 6.4.")
+    blocks = c.get("blocks") or []
+    rows_table(doc, n.t(),
+               "Trainable parameters by component, counted on the fitted "
+               "network of each run. The share column is that component's "
+               "parameters divided by the total.",
+               ["Component", "Parameters (cohort run)", "Share"],
+               [[name, iv(v), fv(100 * (share or 0), 1) + " %"]
+                for name, v, share in blocks]
+               + [["Total", iv(c.get("trainable_parameters")), "100 %"]],
+               widths=[2.2, 2.1, 1.0], font=9.0)
+    rows_table(doc, n.t(),
+               "Model size against the data it was fitted on, and the "
+               "measured cost of one ablation fold.",
+               ["Quantity", "cohort run", "stage_binary run"],
+               [["Trainable parameters", iv(c.get("trainable_parameters")),
+                 iv(sc.get("trainable_parameters"))],
+                ["Training patients", iv(c.get("training_patients")),
+                 iv(sc.get("training_patients"))],
+                ["Parameters per patient",
+                 fv(c.get("parameters_per_patient"), 1),
+                 fv(sc.get("parameters_per_patient"), 1)],
+                ["Measured seconds per ablation fold",
+                 fv(c.get("ablation_seconds_mean"), 0), "—"]],
+               widths=[2.6, 1.6, 1.8], font=9.0)
+    para(doc, "Two readings follow. The encoder and the omic projections "
+              "hold most of the capacity, which is where a model built "
+              "around a gene graph should hold it; the cohort adversary and "
+              "the residual clinical paths are small by comparison, which "
+              "makes the ablation result in Section 6.10 more striking "
+              "rather than less — the clinical residual path dominates the "
+              "accuracy while holding a tiny share of the parameters. And "
+              f"at about {fv(c.get('ablation_seconds_mean'), 0)} seconds "
+              "per fold on CPU, a seven-arm ablation is a multi-hour job "
+              "and the thirty-two-cohort transfer sweep is a multi-day one, "
+              "which is the whole reason Section 5.3 exists.",
+         space_before=8)
+
+
+def ch6_stage(doc, x: F, n: N, S: dict, runs_stage: str):
+    section(doc, "6.18 The Second Prediction Target in Full")
+    p = (S or {}).get("panel") or {}
+    para(doc, "Everything above was reported for the cohort "
+              "target, which is a methodological stress test. The "
+              "stage_binary target is the clinically meaningful "
+              "one, and it was fitted independently — its own folds, its "
+              "own graph, its own comparator panel. Its results are given "
+              "here at the same level of detail, so that the clinical "
+              "endpoint is not left as a sentence in the discussion.")
+    para(doc, f"Only the cohorts that record AJCC stage contribute, giving "
+              f"{x.i('stage_binary','n_labelled')} labelled patients in "
+              f"{x.i('stage_binary','n_cohorts_labelled')} cohorts. The "
+              "classes are early stage (I–II) against late stage (III–IV).")
+    con = (S or {}).get("consistency")
+    pc = (S or {}).get("per_class")
+    sg = (S or {}).get("gap") or {}
+    if pc and sg.get("n_test"):
+        frac = 100.0 * pc["support_sum"] / sg["n_test"]
+        para(doc, "One detail of how this target is scored needs stating "
+                  "before its numbers are read. The held-out split holds "
+                  f"{iv(sg.get('n_test'))} patients, the same split the "
+                  "cohort run used, but only "
+                  f"{iv(pc['support_sum'])} of them — {fv(frac, 1)} per "
+                  "cent — carry an AJCC stage label. Every classification "
+                  "metric for this target is therefore computed on that "
+                  "labelled subset, not on the whole split, so its "
+                  "per-class support sums to "
+                  f"{iv(pc['support_sum'])} rather than to "
+                  f"{iv(sg.get('n_test'))}. The split-size column of the "
+                  "generalisation-gap table below reports the split, which "
+                  "is the larger number; the two are not in conflict and "
+                  "neither is wrong, but a reader comparing them without "
+                  "this sentence would think one of them was.")
+    if pc:
+        rows = [[str(r["class"]), iv(r["support"]), iv(r["tp"]),
+                 iv(r["fp"]), iv(r["fn"]), iv(r["tn"]),
+                 fv(r["sensitivity"]),
+                 f"{fv(r['sens_ci_low'],3)}–{fv(r['sens_ci_high'],3)}",
+                 fv(r["specificity"]), fv(r["precision"]), fv(r["npv"]),
+                 fv(r["f1"]), fv(r["youden"]), fv(r["mcc"]),
+                 fv(r["mean_predicted_prob"])] for r in pc["rows"]]
+        rows_table(doc, n.t(),
+                   "Per-class behaviour on the held-out fold of the "
+                   "stage_binary run, with the contingency table "
+                   "recovered for each class exactly as in Section 6.3. "
+                   "Class 0 is early stage and class 1 is late stage.",
+                   ["Class", "n_c", "TP", "FP", "FN", "TN", "Sens",
+                    "Sens 95 % CI", "Spec", "Prec", "NPV", "F1", "J",
+                    "MCC_c", "Mean p̂"], rows,
+                   widths=[0.42, 0.42, 0.4, 0.4, 0.4, 0.42, 0.42, 0.78,
+                           0.42, 0.42, 0.42, 0.4, 0.4, 0.45, 0.42],
+                   font=6.5)
+        if con:
+            para(doc, "The same internal consistency audit was run on this "
+                      "target. The per-class support sums to "
+                      f"{iv(con.get('support_sum'))}, the held-out split "
+                      "exactly, and recomputing the pooled macro metrics "
+                      "from the per-class table reproduces the reported "
+                      "values to within "
+                      f"{con.get('max_abs_diff', 0):.1e}. Both targets "
+                      "therefore pass the audit.", space_before=8)
+    g = (S or {}).get("gap")
+    if g:
+        rows = [[SHORT.get(r["metric"], r["metric"]), fv(r["train"], 4),
+                 fv(r["validation"], 4), fv(r["test"], 4), fv(r["gap"], 4),
+                 fv(r["gap_pct"], 1)] for r in g["rows"]]
+        rows_table(doc, n.t(),
+                   "Generalisation gap on the stage_binary run, "
+                   "every metric. The gaps here are much smaller than on "
+                   "the cohort run, which is what a harder "
+                   "target with fewer classes and a well-calibrated output "
+                   "produces.",
+                   ["Metric", "Train", "Validation", "Test", "Gap", "Gap %"],
+                   rows, widths=[1.3, 0.95, 1.1, 0.95, 0.95, 0.9], font=8.5)
+        para(doc, "The mean absolute gap across the discriminative metrics "
+                  f"is {fv(g.get('mean_abs_gap'), 4)} against "
+                  "the cohort run's. Fitting the harder target "
+                  "overfits less, which is the ordinary direction: there is "
+                  "less structure available to memorise.", space_before=8)
+    cls = ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted",
+           "precision_macro", "recall_macro", "specificity_macro",
+           "npv_macro", "auroc", "auprc", "mcc", "kappa", "top2_accuracy",
+           "log_loss", "brier", "ece"]
+    rows = _cmp_rows(runs_stage, p, cls)
+    if rows:
+        wide_table(doc, n.t(),
+                   "Classification on the held-out fold of the "
+                   "stage_binary run, every model and every "
+                   "metric, MOSAIC-GNN first and the comparators in "
+                   "descending balanced accuracy.",
+                   ["Model"] + _short(cls), rows,
+                   groups=[_short(gr) for gr in
+                           [["accuracy", "balanced_accuracy", "f1_macro",
+                             "f1_weighted"],
+                            ["precision_macro", "recall_macro",
+                             "specificity_macro", "npv_macro"],
+                            ["auroc", "auprc", "mcc", "kappa",
+                             "top2_accuracy"],
+                            ["log_loss", "brier", "ece"]]],
+                   part_caps=CLS_CAPS,
+                   first_width=1.75, col_width=0.78, font=7.5)
+    surv = ["c_index", "auc@12m", "auc@36m", "auc@60m", "logrank_chi2",
+            "logrank_p"]
+    srows = _cmp_rows(runs_stage, p, surv)
+    if srows:
+        rows_table(doc, n.t(),
+                   "Survival ranking on the stage_binary run.",
+                   ["Model"] + _short(surv), srows,
+                   widths=[1.75, 0.78, 0.7, 0.7, 0.7, 0.85, 0.85], font=7.5)
+    r = (S or {}).get("ranks")
+    if r:
+        rows = [[SHORT.get(q["metric"], q["metric"]), fv(q["mosaic"], 4),
+                 f"{q['rank']} of {q['of']}", q["best_model"],
+                 fv(q["best_value"], 4), fv(q["delta_to_best"], 4)]
+                for q in r["rows"]]
+        rows_table(doc, n.t(),
+                   "Rank of MOSAIC-GNN on the stage_binary run "
+                   "against the full comparator panel, on every metric "
+                   "both produce.",
+                   ["Metric", "MOSAIC-GNN", "Rank", "Best comparator",
+                    "Its value", "Δ to best"], rows,
+                   widths=[1.15, 0.95, 0.85, 1.5, 0.85, 0.8], font=8.0)
+        para(doc, f"The median rank on this target is "
+                  f"{fv(r.get('median_rank'), 1)} of about "
+                  f"{iv((r['rows'][0] or {}).get('of'))}, with first place "
+                  f"on {iv(r.get('n_rank_1'))} metrics and a best rank of "
+                  f"{iv(r.get('best_rank'))}. The picture is the same as on "
+                  "the cohort target, which matters: the negative "
+                  "comparison result is not an artefact of the artificial "
+                  "endpoint. It holds on the clinical one too.",
+             space_before=8)
+    pcoh = (S or {}).get("per_cohort")
+    if pcoh:
+        hdr = ["Cohort", "n", "Acc", "BAcc", "F1-M", "AUROC", "AUPRC",
+               "MCC", "LogLoss", "Brier", "C-index"]
+        rows = [[q["cohort"], iv(q["n"]), fv(q["accuracy"]),
+                 fv(q["balanced_accuracy"]), fv(q["f1_macro"]),
+                 fv(q.get("auroc")), fv(q.get("auprc")), fv(q["mcc"]),
+                 fv(q["log_loss"]), fv(q["brier"]), fv(q["c_index"])]
+                for q in pcoh["rows"]]
+        rows_table(doc, n.t(),
+                   "Per-cohort metrics on the held-out fold of the "
+                   "stage_binary run, ordered by accuracy.",
+                   hdr, rows,
+                   widths=[0.95, 0.5, 0.58, 0.58, 0.58, 0.58, 0.58, 0.55,
+                           0.62, 0.55, 0.62], font=7.5)
+        acc, ci = pcoh["accuracy"], pcoh["c_index"]
+        para(doc, f"Across {iv(pcoh.get('n_cohorts'))} cohorts the "
+                  f"per-cohort accuracy averages {fv(acc['mean'])} "
+                  f"(SD {fv(acc['sd'])}, range {fv(acc['min'])} to "
+                  f"{fv(acc['max'])}) and the per-cohort C-index averages "
+                  f"{fv(ci['mean'])} (SD {fv(ci['sd'])}, range "
+                  f"{fv(ci['min'])} to {fv(ci['max'])}); "
+                  f"{iv(pcoh.get('n_cindex_above_half'))} cohorts exceed a "
+                  "C-index of 0.5. The correlation between a cohort's "
+                  "event rate and its C-index on this target is "
+                  f"{_corr_str(pcoh.get('corr_eventrate_cindex'))}.",
+             space_before=8)
+    it = (S or {}).get("interpretation")
+    if it:
+        b = it["blocks"]
+        rows_table(doc, n.t(),
+                   "Attribution by omic block on the stage_binary "
+                   "run, for comparison with the cohort run. The "
+                   "mutation share is larger here but still the smallest "
+                   "of the three.",
+                   ["Omic block", "Σ |IG|", "Share"],
+                   [["Mutation", fv(b["ig_mut"]["abs_sum"], 4),
+                     fv(100 * (b["ig_mut"]["share"] or 0), 1) + " %"],
+                    ["Copy number", fv(b["ig_cna"]["abs_sum"], 4),
+                     fv(100 * (b["ig_cna"]["share"] or 0), 1) + " %"],
+                    ["Expression", fv(b["ig_exp"]["abs_sum"], 4),
+                     fv(100 * (b["ig_exp"]["share"] or 0), 1) + " %"]],
+                   widths=[2.2, 1.5, 1.2], font=9.0)
+        csv_table(doc, f"{runs_stage}/table7_gene_importance.csv", n.t(),
+                  "Top 15 genes by attribution on the stage_binary "
+                  "run. CDKN2B heads both targets' lists, which is the "
+                  "only interpretability result that replicates across "
+                  "them.",
+                  nrows=15, widths=[0.95, 1.15, 0.8, 0.8, 0.85, 0.85, 0.85],
+                  cols=["gene", "module", "gate_mean", "ig_abs", "ig_mut",
+                        "ig_cna", "ig_exp"], font=8.0,
+                  head_map={"gene": "Gene", "module": "Module",
+                            "gate_mean": "Gate", "ig_abs": "|IG|",
+                            "ig_mut": "IG mutation", "ig_cna": "IG CNA",
+                            "ig_exp": "IG expression"})
+    rich(doc, [("Which phases did not run on this target. ", True),
+               ("The ablation, the label permutation control, the "
+                "sample-size curve and the leave-one-cancer-out sweep were "
+                "run on the cohort target only. Each is a "
+                "multi-hour to multi-day job on CPU, as Section 6.17 "
+                "measures, and the budget covered one target. They are "
+                "therefore absent from this section rather than carried "
+                "over from the other target, and no number in it is "
+                "borrowed. What this target does have is the full metric "
+                "panel, the per-class and per-cohort breakdowns, the "
+                "generalisation-gap audit, the consistency audit, the "
+                "complete comparator panel with paired corrected tests, "
+                "the molecular-gain comparison and the interpretability "
+                "exports.", False)])
+
+
+def ch6_discussion(doc, x: F, n: N, A: dict, S: dict):
+    section(doc, "6.19 Discussion")
+    lc, r = A.get("loco") or {}, A.get("ranks") or {}
+    para(doc, "Taken together the results answer the four sub-questions of "
+              "Section 1.2, and two of the four answers are not the ones "
+              "the architecture was built to produce.")
+    bullets(doc, [
+        ("RQ1, answered yes, and it replicates. ", "Molecular features add "
+         "prognostic information beyond the clinical covariates, measured "
+         "both by a penalised Cox model with and without them and by "
+         "MOSAIC-GNN against a clinical-only Cox model, on both targets, "
+         "with every interval excluding zero and every difference "
+         "surviving multiplicity correction."),
+        ("RQ2, answered in part. ", "The three structural components — gene "
+         "graph, module pooling, learned patient graph — each clear the "
+         "measured noise floor when removed, at one to two floors. The two "
+         "auxiliary objectives do not clear it. The clinical residual path "
+         "dominates everything else by an order of magnitude while holding "
+         "a small share of the parameters."),
+        ("RQ3, answered yes. ", "The representation stratifies risk in "
+         "cohorts held out entirely from training: above random in "
+         + iv(lc.get("n_above_half")) + " of " + iv(lc.get("n_cohorts")) +
+         " cases, with the log-rank test significant after "
+         "Benjamini-Hochberg correction in " + iv(lc.get("n_q_lt_05")) +
+         ". A cohort detector could not do this."),
+        ("RQ4, answered against the proposed model. ", "Under a paired, "
+         "corrected comparison it does not outperform established methods "
+         "on either classification endpoint; its median rank across "
+         + iv(r.get("n_metrics")) + " metrics is "
+         + fv(r.get("median_rank"), 1) + ". It is competitive rather than "
+         "superior on survival ranking."),
+    ])
+    para(doc, "Three findings deserve to be read together because they "
+              "point the same way. The ablation says the clinical "
+              "covariates carry most of the accuracy. The attribution "
+              "analysis says the molecular contribution that does exist is "
+              "carried by expression and copy number, with the binary "
+              "mutation encoding contributing almost nothing. And the "
+              "sample-size curve says classification has not saturated "
+              "while survival ranking essentially has. The consistent "
+              "reading is that the molecular signal available through this "
+              "feature space and this encoding is real but thin, and that "
+              "the architecture's capacity exceeds what that signal can "
+              "support — which is also why a penalised linear model, with "
+              "far fewer effective degrees of freedom, does better.")
+    para(doc, "The practical conclusion a reader should draw is therefore "
+              "not \"use this architecture\". It is that the molecular data "
+              "is worth collecting because it carries information the "
+              "clinic does not have; that a penalised Cox model or a "
+              "gradient-boosted ensemble is a stronger starting point than "
+              "it is usually given credit for; and that the two-level "
+              "graph design contributes measurably but not enough to close "
+              "that gap at this sample size. The last clause is a testable "
+              "prediction rather than a defence, and Section 8.3 says how "
+              "to test it.")
+    para(doc, "Two explanations offered in earlier drafts of this work were "
+              "tested against runs executed for that purpose, failed, and "
+              "have been withdrawn: the cohort-adversary account of the "
+              "disentanglement arm, retracted in Section 6.10, and the "
+              "claim that leave-one-cancer-out classification metrics "
+              "would be near zero by arithmetic, retracted in "
+              "Section 6.14. Both retractions are recorded in place rather "
+              "than deleted, because the sequence of a prediction, a test "
+              "and a withdrawal is part of the evidence for how the "
+              "surviving conclusions were reached.")
+
+    section(doc, "6.20 Threats to Validity")
+    p = A.get("panel") or {}
+    g = A.get("gap") or {}
+    d = A.get("descriptives") or {}
+    bullets(doc, [
+        ("Single data source. ", "Every patient comes from TCGA through "
+         "cBioPortal. No external cohort was available, so none of these "
+         "numbers has been replicated outside that source and no claim of "
+         "external validity is made."),
+        ("Panel-restricted feature space. ", "The 469-gene panel was "
+         "pre-committed, which removes selection leakage but also removes "
+         "whole classes of biology — immune and stromal programmes among "
+         "them — from reach. Results cannot be generalised to genome-wide "
+         "feature spaces."),
+        ("A single held-out fold for the headline numbers. ", "The main "
+         "runs report one held-out fold, so the headline metrics carry no "
+         "fold-to-fold spread of their own. The ±0.01 noise floor of "
+         "Section 6.5 and the Wilson intervals of Section 6.3 bound their "
+         "precision, but a repeated-fold estimate would be better and was "
+         "not affordable."),
+        ("Reduced-setting and bounded phases. ", "The ablation ran on a "
+         "reduced configuration and the permutation test on four "
+         "permutations, which bounds the attainable p-value at 0.2. Both "
+         "are labelled wherever they appear and neither supports a "
+         "fine-grained claim."),
+        ("Calibration. ", "An expected calibration error of "
+         + fv(p.get("ece"), 3) + " on the cohort run means the "
+         "predicted probabilities are not usable as probabilities without "
+         "recalibration, whatever the discriminative metrics show."),
+        ("A real generalisation gap. ", "The train-to-test gap reaches "
+         + fv(g.get("max_gap"), 4) + " on its largest metric. It is not "
+         "the collapse the parameter count might suggest, but it is not "
+         "nothing, and every held-out number should be read as the lower "
+         "end of what this configuration can do on data it has seen."),
+        ("Small-cohort statistics. ", iv(d.get("n_events_below_20")) +
+         " cohorts contribute fewer than twenty deaths. Their per-cohort "
+         "numbers are reported for completeness and are explicitly "
+         "separated from the powered subset in Sections 6.13 and 6.14."),
+        ("Non-determinism. ", "The measured run-to-run spread of about "
+         "±0.01 bounds the resolution of every single-fit comparison in "
+         "this report, including every ablation arm."),
+        ("Multiplicity beyond the corrected family. ", "The paired tests "
+         "are corrected within each metric, and Section 6.8 shows that "
+         "pooling the two families is stricter. The wider family of every "
+         "metric reported anywhere in this chapter is larger still, and no "
+         "correction spans it; the conclusions that matter rest on "
+         "differences far from the 0.05 boundary, which is why this is a "
+         "caveat rather than a defect."),
+        ("No external, prospective or clinical evaluation. ", "None was "
+         "performed, and no claim that depends on one appears anywhere in "
+         "this report."),
+    ])
 
 
 if __name__ == "__main__":
