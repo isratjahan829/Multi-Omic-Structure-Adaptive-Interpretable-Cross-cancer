@@ -1489,6 +1489,27 @@ for key in ("all", "events_ge_20", "events_ge_60"):
 print("\nTransfer falls as the held-out cohort's event rate rises, and "
       "restricting to the powered cohorts strengthens the relationship "
       "rather than weakening it.")
+
+# The classification column of the same table, and why no number from it is
+# reported. In a single-class fold balanced accuracy is that class's recall,
+# so recall * patients is how many patients were assigned a cohort the model
+# was never trained on -- which a softmax head should not be able to do.
+an = lc["classification_anomaly"]
+print()
+print("UNEXPLAINED: single-class recall in the transfer folds")
+print(pd.DataFrame(an["rows"])[["cohort", "patients", "bacc",
+                                "implied_correct"]]
+      .head(12).to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print(f"median {an['median']:.4f} over {an['n']} cohorts; "
+      f"{an['n_above_90']} exceed 0.9; {an['n_exactly_1']} are exactly "
+      "1.000 -- a perfect assignment of a label absent from training.")
+print("No leave-one-cancer-out classification number is reported as a "
+      "result anywhere, in this notebook or in the report. The survival "
+      "column above comes from the risk head, which never references the "
+      "class label space; transfer is also much WORSE than the pooled fold "
+      f"({lc['median']:.4f} vs {A['panel']['c_index']:.4f}), which is what "
+      "generalisation loss looks like and the opposite of leakage. See "
+      "Section 6.14.1 of the report for the full argument.")
 """)
 
 rmd(r"""

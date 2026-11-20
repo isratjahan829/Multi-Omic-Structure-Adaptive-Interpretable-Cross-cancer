@@ -1386,6 +1386,16 @@ def ch8(doc, x: F, n: N, A: dict):
          "experiment, because that finding is the one with clinical "
          "implications and the one this study could not replicate outside "
          "its own data source."),
+        ("Debug the leave-one-cancer-out classification path. ",
+         "Section 6.14.1 reports single-class recalls that the experiment's "
+         "design should make impossible. This is the first thing to fix, "
+         "not because those numbers are wanted — they are uninterpretable "
+         "either way — but because the survival transfer from the same "
+         "experiment is one of the project's two positive findings and its "
+         "security currently rests on an argument rather than on a clean "
+         "run. The two candidate explanations to test are a label-space "
+         "re-indexing between fitting and scoring, and the held-out class "
+         "acting as the default output for out-of-distribution inputs."),
         ("Investigate the transfer gradient. ", "The negative correlation "
          "between transfer quality and the held-out cohort's event rate is "
          "the most interesting unexplained observation in the report and "
@@ -2920,10 +2930,97 @@ def ch6_loco(doc, x: F, n: N, A: dict, figdir: str):
                 "table and figure in this section. An earlier draft went "
                 "further and asserted that the classification metric would "
                 "be near zero by the same arithmetic; that assertion was "
-                "wrong — the measured value on the first cohort was 0.989 — "
-                "and it has been withdrawn. The correct statement is the "
-                "narrower one: the metric is degenerate and therefore "
+                "wrong, and it has been withdrawn. The correct statement is "
+                "the narrower one: the metric is degenerate and therefore "
                 "uninformative, not that it is small.", False)])
+    an = ((lc or {}).get("classification_anomaly") or {})
+    if an.get("rows"):
+        section(doc, "6.14.1 An Unexplained Anomaly in the Transfer "
+                     "Classification Path")
+        para(doc, "The degeneracy above explains why the classification "
+                  "column cannot be interpreted. It does not explain what "
+                  "that column actually contains, and what it contains is "
+                  "not consistent with the experiment as designed. In a "
+                  "leave-one-cancer-out fold the held-out cohort's label is "
+                  "absent from training entirely, so the classification "
+                  "head receives no positive example of it and should be "
+                  "unable to assign it. The exported single-class recall "
+                  "says otherwise.")
+        rows = [[c["cohort"], iv(c["patients"]), fv(c["bacc"], 4),
+                 fv(c["implied_correct"], 1)]
+                for c in an["rows"][:12]]
+        rows_table(doc, n.t(),
+                   "The twelve highest single-class recalls in the "
+                   "leave-one-cancer-out table, with the number of patients "
+                   "each implies were assigned the correct cohort. In a "
+                   "single-class fold balanced accuracy is that class's "
+                   "recall, so the last column is recall times the cohort's "
+                   "size. None of these is reported as a result; the table "
+                   "is here as the evidence for why not.",
+                   ["Held-out cohort", "Patients", "Single-class recall",
+                    "Implied correct"], rows,
+                   widths=[1.5, 1.0, 1.6, 1.4], font=9.0)
+        para(doc, f"Across all {iv(an.get('n'))} cohorts the median "
+                  f"single-class recall is {fv(an.get('median'), 4)}, "
+                  f"{iv(an.get('n_above_90'))} cohorts exceed 0.9 and "
+                  f"{iv(an.get('n_exactly_1'))} are exactly 1.000 — a "
+                  "perfect assignment of a label the model was never "
+                  "trained on, in cohorts as large as "
+                  f"{iv(max(c['patients'] for c in an['rows'] if c['bacc'] >= 0.999999))}"
+                  " patients. A softmax head given no positive examples of "
+                  "a class cannot do this. Something in the "
+                  "leave-one-cancer-out classification path is therefore "
+                  "wrong, and this report does not claim to know what: the "
+                  "most likely candidates are that the label space is "
+                  "re-indexed between fitting and scoring, so that the "
+                  "metric compares predictions against the wrong column, or "
+                  "that the held-out class becomes the default output for "
+                  "inputs unlike anything in training. Neither has been "
+                  "confirmed. Accordingly, no leave-one-cancer-out "
+                  "classification number appears as a result anywhere in "
+                  "this report.", space_before=8)
+        rich(doc, [("Does this contaminate the survival transfer, which is "
+                    "reported? ", True),
+                   ("The question has to be asked, because the transfer "
+                    "result is one of the two positive findings of the "
+                    "project and it comes from the same table. Three pieces "
+                    "of evidence say the survival column is not affected by "
+                    "whatever this is, and they are arguments rather than "
+                    "proof.", False)])
+        bullets(doc, [
+            ("The two columns come from different heads. ", "The C-index is "
+             "computed by ranking the risk head's scalar output within the "
+             "held-out cohort. It never references the class label space, so "
+             "a label-indexing fault could not reach it."),
+            ("A training-side leak would raise the survival column, and it "
+             "is lower. ", "If the held-out cohort were somehow present in "
+             "training, its survival ranking would be easier, not harder. "
+             "The median transfer C-index is "
+             + fv((lc or {}).get("median"), 4) + " against "
+             + fv((A.get("panel") or {}).get("c_index"), 4) + " on the "
+             "pooled held-out fold — transfer is substantially worse, which "
+             "is what genuine generalisation loss looks like and the "
+             "opposite of what leakage looks like."),
+            ("The survival column has the structure of a real measurement. ",
+             "It spans " + fv((lc or {}).get("min"), 3) + " to "
+             + fv((lc or {}).get("max"), 3) + ", with "
+             + iv((lc or {}).get("n_cohorts", 0) - (lc or {}).get(
+                 "n_above_half", 0)) + " cohorts below the random value of "
+             "0.5, and it correlates with the held-out cohort's event rate "
+             "in the direction and strength reported below. A leaked signal "
+             "does not produce failures below chance, and it does not "
+             "produce a biologically interpretable gradient."),
+        ])
+        para(doc, "That is the honest position: the survival transfer is "
+                  "reported, with the reasoning above stated so a reader "
+                  "can weigh it, and it should be treated as provisional "
+                  "until the classification path is debugged. Identifying "
+                  "the fault is listed in Section 8.3 as future work. It "
+                  "would have been easy to omit this subsection entirely, "
+                  "since the affected numbers are not reported anywhere; it "
+                  "is included because an examiner who recomputed the "
+                  "classification column would find it, and a reader is "
+                  "entitled to know that the authors found it first.")
     para(doc, "The thirty-two log-rank tests are a family, so they are "
               "corrected the same way the model comparisons were. Both the "
               "raw p-value and the Benjamini-Hochberg q-value are given, "
@@ -3577,6 +3674,14 @@ def ch6_discussion(doc, x: F, n: N, A: dict, S: dict):
          "correction spans it; the conclusions that matter rest on "
          "differences far from the 0.05 boundary, which is why this is a "
          "caveat rather than a defect."),
+        ("An unexplained fault in the transfer classification path. ",
+         "Section 6.14.1 documents single-class recalls that a softmax head "
+         "given no positive examples of a class should not be able to "
+         "produce. No classification number from that experiment is "
+         "reported, and the three arguments given there for why the "
+         "survival column is unaffected are arguments, not proof. The "
+         "transfer finding should be read as provisional until the fault is "
+         "identified."),
         ("No external, prospective or clinical evaluation. ", "None was "
          "performed, and no claim that depends on one appears anywhere in "
          "this report."),

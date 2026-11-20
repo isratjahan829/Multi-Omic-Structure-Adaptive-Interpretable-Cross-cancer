@@ -282,6 +282,10 @@ def main() -> int:
     c.number("loco: cohorts above 0.5", lc["n_above_half"],
              facts["cohort"]["loco"]["n_above_half"])
     c.report_only("loco: cohorts significant after FDR", lc["n_q_lt_05"])
+    an = lc["classification_anomaly"]
+    c.report_only("loco anomaly: median single-class recall", an["median"])
+    c.report_only("loco anomaly: cohorts above 0.9", an["n_above_90"])
+    c.report_only("loco anomaly: cohorts at exactly 1.000", an["n_exactly_1"])
     c.report_only("loco: corr(event rate, C-index), all cohorts",
                   lc["groups"]["all"]["corr_event_rate"]["r"])
 
@@ -309,7 +313,20 @@ def main() -> int:
                       "PASS" if ok else "FAIL",
                       f"max |diff| = {pr['q_max_abs_diff']:.2e}" if pr
                       else "paired export absent"))
-    nb_ok = "41 of 41 checks PASS" in c.nb or "checks PASS" in c.nb
+    nb_ok = "checks PASS" in c.nb
+    # The anomaly must be disclosed, not quietly dropped, in both documents.
+    disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
+        "An Unexplained Anomaly") in c.report
+    extra_disclosure = ("notebook discloses the transfer anomaly",
+                        "PASS" if "UNEXPLAINED" in c.nb.upper()
+                        else ("WARN" if not nb_text else "FAIL"),
+                        "the notebook prints it" if "UNEXPLAINED" in c.nb.upper()
+                        else "no disclosure found in the notebook output")
+    extra.append(("report discloses the transfer anomaly",
+                  "PASS" if disclosed_report else "FAIL",
+                  "Section 6.14.1 is present" if disclosed_report
+                  else "no disclosure found in the report"))
+    extra.append(extra_disclosure)
     extra.append(("notebook ran its own self-check",
                   "PASS" if nb_ok else ("WARN" if not nb_text else "FAIL"),
                   "Section 2 verification cell output present" if nb_ok

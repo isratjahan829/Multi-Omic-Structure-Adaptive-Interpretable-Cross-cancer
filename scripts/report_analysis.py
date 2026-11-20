@@ -762,6 +762,32 @@ def loco_derived(runs: str) -> Optional[dict]:
     qs = benjamini_hochberg([r["logrank_p"] for r in rows])
     for r, q in zip(rows, qs):
         r["logrank_q"] = q
+
+    # The classification column of this table is not reported as a result,
+    # and this is the evidence for why. In a leave-one-cancer-out fold the
+    # held-out class never appears in training, so a softmax head should be
+    # unable to assign it at all. The exported single-class recall says
+    # otherwise, and the size of the discrepancy is quantified here rather
+    # than left as a remark: implied correct = recall * patients, because in
+    # a single-class fold balanced accuracy reduces to that class's recall.
+    cls = []
+    for r, src in zip(rows, tab):
+        b = num(src.get("balanced_accuracy"))
+        if b is None:
+            continue
+        cls.append({"cohort": r["cohort"], "bacc": b,
+                    "patients": r["patients"],
+                    "implied_correct": (b * r["patients"]
+                                        if r["patients"] else None)})
+    cls.sort(key=lambda c: -c["bacc"])
+    anomaly = {
+        "n": len(cls), "rows": cls,
+        "median": quantile([c["bacc"] for c in cls], 0.5),
+        "n_above_90": sum(1 for c in cls if c["bacc"] > 0.9),
+        "n_exactly_1": sum(1 for c in cls if c["bacc"] >= 0.999999),
+        "n_above_half": sum(1 for c in cls if c["bacc"] > 0.5),
+        "worst": min((c["bacc"] for c in cls), default=None),
+    }
     ci = [r["c_index"] for r in rows]
     groups = {}
     for label, lo in (("all", 0), ("events_ge_20", 20), ("events_ge_60", 60)):
@@ -797,6 +823,7 @@ def loco_derived(runs: str) -> Optional[dict]:
                              and r["logrank_p"] < 0.05),
             "n_q_lt_05": sum(1 for r in rows if r["logrank_q"] is not None
                              and r["logrank_q"] < 0.05),
+            "classification_anomaly": anomaly,
             "groups": groups}
 
 
