@@ -1,9 +1,23 @@
 # Notebook output: real data, reduced configuration
 
-This directory holds what `notebooks/mosaic_gnn.ipynb` produces. It is **real
-pan-cancer data** from `data_pan/` (32 studies, 10 953 patients), fitted at a
-deliberately reduced configuration so the notebook finishes in about an hour
-on a laptop-class machine.
+This directory holds what the **retraining half** of
+`notebooks/mosaic_gnn.ipynb` produces — Sections 3 onward, not Section 2. It
+is **real pan-cancer data** from `data_pan/` (32 studies, 10 953 patients),
+fitted at a deliberately reduced configuration so the notebook finishes in a
+sitting.
+
+`scripts/execute_notebook.py` ships it at **`cohort`, 80 genes, 4 epochs,
+2 folds**, with one baseline fold and the ablation, transfer and permutation
+phases set to the small counts its `--help` lists. Earlier revisions of this
+file described a `stage_binary` run at 60 genes and 3 epochs; that was a
+different invocation and the numbers below come from it. Read the settings
+each cell prints, not this paragraph, if the two ever disagree — the notebook
+prints the scope it actually used.
+
+A `cohort_results.json` here is the demonstration's own cross-validation, not
+the manuscript's. The manuscript targets have no such file at all, which is
+the point Section 6.20 of the report makes about single-fold headline
+numbers.
 
 Three directories, three provenances, and the distinction matters:
 
