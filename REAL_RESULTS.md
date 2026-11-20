@@ -96,15 +96,23 @@ Two further deviations:
   step over ~5 800 training patients does not fit in 16 GB, so training is
   mini-batched at 32. This changes the optimisation trajectory. It is a real
   deviation, not a cosmetic one.
-* **The baseline panel ran on one outer fold of five**
-  (`MOSAIC_BASELINE_FOLDS=1`). Twenty-four models over 10 953 patients is the
-  slowest phase in the schedule, and evaluating it on one fold left compute
-  for MOSAIC-GNN's own cross-validation, without which the work has no
-  headline result. Every baseline row is therefore a single fold with `n = 1`
-  and `std = 0`, on the **same** held-out patients as fold 0 of the model's
-  cross-validation, so the paired comparison is still like-for-like. Where
-  this report shows a baseline beside a cross-validated model number, the
-  fold counts differ and the table says so.
+* **Every headline number is one held-out fold, the model's included.**
+  An earlier revision of this section said the baseline panel ran on one
+  fold of five while MOSAIC-GNN's own numbers were cross-validated. That was
+  wrong, and it is corrected here. `scripts/export_tables.py` builds every
+  table from `{tag}_primary_fold.pt` and from `splits[0]` / `preds[0]` of the
+  saved prediction pickle, so the model and all 24 comparators are scored on
+  the same single fold. No multi-fold summary exists for either target:
+  there is no `cohort_results.json` or `stage_binary_results.json` in the run
+  directories, only the ablation arms' files, which do carry two folds each.
+
+  Two consequences, and the first is better than the retracted claim. The
+  paired comparison is exactly like-for-like — same patients, same fold, both
+  sides — so nothing in it is confounded by differing fold counts. But no
+  headline metric carries a fold-to-fold spread of its own, so the precision
+  of each is bounded by the ±0.01 same-seed noise floor and by the Wilson
+  intervals on the per-class rates, not by a standard error over folds. A
+  repeated-fold estimate was not affordable and is not reported.
 
 ### One model that is reported as not run
 

@@ -325,6 +325,28 @@ def main() -> int:
                   f"{len(refs)} references checked" if not stale
                   else "no heading for: " + ", ".join(stale)))
 
+    # The headline tables come from a single fold. If a multi-fold summary
+    # ever appears, the documents' "one held-out fold" wording is stale and
+    # has to be revisited, so the state of the run directory is checked
+    # against what the report says rather than trusted to stay put.
+    multi = [f for f in (os.path.join(a.runs, "cohort_results.json"),
+                         os.path.join(a.runs_stage,
+                                      "stage_binary_results.json"))
+             if os.path.isfile(f)]
+    says_single = "single held-out fold" in c.report
+    if multi:
+        extra.append(("single-fold wording matches the run directory",
+                      "FAIL",
+                      "a multi-fold summary now exists (" +
+                      ", ".join(os.path.basename(f) for f in multi) +
+                      ") but the report still describes one fold"))
+    else:
+        extra.append(("single-fold wording matches the run directory",
+                      "PASS" if says_single else "FAIL",
+                      "no multi-fold summary exists and the report says so"
+                      if says_single else
+                      "the report does not state the single-fold limitation"))
+
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
     disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
