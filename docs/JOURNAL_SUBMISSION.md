@@ -185,10 +185,17 @@ it read as an arbitrary choice.
 
 All of these exist in the pipeline. Use them.
 
-* **Uncertainty on every headline number.** `table2_single_fold.csv` carries
-  bootstrap confidence intervals; the cross-validation summary in
-  `<tag>_results.json` carries mean ± SD with the fold count `n`. Never
-  report a bare point estimate.
+* **Uncertainty on every headline number — and be honest about its source.**
+  There is no cross-validation summary for either main target: no
+  `cohort_results.json` or `stage_binary_results.json` exists, because
+  `export_tables.py` builds every table from the saved primary fold and
+  `splits[0]` / `preds[0]`. Only the ablation arms have
+  `<tag>_results.json` with mean ± SD and a fold count `n`, and there `n` is
+  2. So for the headline numbers the uncertainty you can legitimately quote
+  is the paired bootstrap interval in `table4_paired_tests.csv`, the Wilson
+  interval on each per-class rate, and the ±0.01 same-seed noise floor —
+  not a standard error over folds. Never report a bare point estimate, and
+  never imply a fold spread that was not computed.
 * **Paired tests, corrected.** `table4_paired_tests.csv` — paired bootstrap on
   the same patients, Benjamini-Hochberg across the whole table. Unpaired
   comparisons of means will be challenged.
