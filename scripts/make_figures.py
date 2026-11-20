@@ -158,21 +158,36 @@ def fig_gap(gap: pd.DataFrame, out: str) -> str:
     fig, axes = plt.subplots(1, len(mets), figsize=(3.6 * len(mets), 4.0))
     if len(mets) == 1:
         axes = [axes]
-    colors = [C1, C2, C3]
+    # The quantity this figure exists to show is the distance between the
+    # splits, not their height. Drawn as bars on a 0-1 axis the three are
+    # indistinguishable, which is why an earlier caption had to ask the
+    # reader to look at the gaps rather than the bars. One connected series
+    # per metric, on its own zoomed scale, makes the gap the thing you see;
+    # dots carry no area, so the scale need not start at zero.
     for ax, m in zip(axes, mets):
         vals = [float(gap.at[r, m]) for r in rows]
-        bars = ax.bar(range(len(rows)), vals, color=colors[:len(rows)],
-                      width=0.62)
+        ax.plot(range(len(rows)), vals, color=C1, linewidth=2, zorder=2)
+        ax.scatter(range(len(rows)), vals, s=58, color=C1,
+                   edgecolor="white", linewidth=1.4, zorder=3)
         ax.set_xticks(range(len(rows)))
         ax.set_xticklabels([r[:5] for r in rows])
-        ax.set_ylim(0, max(1.0, max(vals) * 1.15))
-        ax.set_title(m.replace("_", " "))
+        lo, hi = min(vals), max(vals)
+        span = max(hi - lo, 0.008)
+        ax.set_ylim(lo - 1.5 * span, hi + 1.5 * span)
+        ax.set_xlim(-0.45, len(rows) - 0.55)
         ax.grid(axis="x", visible=False)
-        for b, v in zip(bars, vals):           # direct labels, relief rule
-            ax.text(b.get_x() + b.get_width() / 2, v + 0.015, f"{v:.3f}",
-                    ha="center", fontsize=7.5, color=INK)
+        for i, v in enumerate(vals):
+            ax.text(i, v + 0.34 * span, f"{v:.3f}", ha="center",
+                    fontsize=7.5, color=INK)
+        if "train" in rows and "test" in rows:
+            g = vals[rows.index("train")] - vals[rows.index("test")]
+            ax.set_title(f"{m.replace('_', ' ')}\ngap = {g:+.4f}",
+                         fontsize=9.5)
+        else:
+            ax.set_title(m.replace("_", " "))
         tidy(ax)
-    fig.suptitle("Identical metrics on training, validation and held-out splits",
+    fig.suptitle("The same metrics across the three splits, each on its own "
+                 "scale so the gap is visible",
                  fontsize=10, fontweight="bold", color=INK, y=1.02)
     fig.tight_layout()
     fig.savefig(out)

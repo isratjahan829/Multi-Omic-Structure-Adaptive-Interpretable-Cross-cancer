@@ -2537,10 +2537,16 @@ def ch6_gap(doc, x: F, n: N, A: dict, figdir: str):
                   "unexplained sign is exactly what a reader should be able "
                   "to see.")
     add_figure(doc, f"{figdir}/fig2_risk.png")
-    caption(doc, n.f() + ":", "The identical metric panel on the training, "
-                              "validation and held-out splits. The bars are "
-                              "read for the distance between them, not for "
-                              "their height.", above=False)
+    caption(doc, n.f() + ":", "The same metrics across the three splits, "
+                              "each panel on its own scale because the "
+                              "quantity of interest is the distance between "
+                              "the points and on a common 0-to-1 axis the "
+                              "three are indistinguishable. Each panel "
+                              "carries its train-minus-test gap. The "
+                              "C-index panel is not monotone: validation "
+                              "sits slightly below the held-out split, "
+                              "which a common scale would have hidden.",
+            above=False)
 
     section(doc, "6.5 The Measured Noise Floor")
     para(doc, "An ablation cannot be read without knowing how much the "
