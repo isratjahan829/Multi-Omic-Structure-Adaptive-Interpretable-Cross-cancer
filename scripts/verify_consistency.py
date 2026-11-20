@@ -394,6 +394,32 @@ def main() -> int:
                   else "older than " + str(newest_name) + ": "
                        + ", ".join(stale_figs)))
 
+    # The single-file runnable embeds the package and three scripts. If any
+    # of them changed after it was last built, the file a reader downloads is
+    # not the code this repository contains. Rebuilt to a temporary path and
+    # compared, so the check cannot disturb the shipped file.
+    standalone = os.path.join(REPO, "deliverables", "MOSAIC_GNN_complete.py")
+    builder = os.path.join(HERE, "build_standalone.py")
+    if os.path.isfile(standalone) and os.path.isfile(builder):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = os.path.join(tmp, "rebuilt.py")
+            r = subprocess.run([sys.executable, builder, "--out", probe],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                extra.append(("standalone matches its sources", "FAIL",
+                              "the builder failed: "
+                              + (r.stderr.strip().splitlines() or [""])[-1]))
+            else:
+                with open(standalone, "rb") as f1, open(probe, "rb") as f2:
+                    same = f1.read() == f2.read()
+                extra.append(("standalone matches its sources",
+                              "PASS" if same else "FAIL",
+                              "a rebuild is byte-identical" if same else
+                              "the shipped file differs from a rebuild; run "
+                              "scripts/build_standalone.py"))
+
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
     disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
