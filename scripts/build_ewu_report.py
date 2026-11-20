@@ -1233,7 +1233,7 @@ def ch7(doc, x: F, n: N, A: dict):
               "visible. TCGA's cohorts are not demographically "
               "representative of the global cancer population, and the "
               "cohorts that this model transfers into worst are the "
-              "aggressive ones, as Section 6.10 shows. A model deployed "
+              "aggressive ones, as Section 6.14 shows. A model deployed "
               "without that caveat would perform worst precisely where the "
               "clinical need is greatest. Stating the correlation and its "
               "direction is part of the result, not a disclaimer appended "
@@ -1305,27 +1305,37 @@ def ch8(doc, x: F, n: N, A: dict):
               "comparators on identical folds with paired bootstrap tests, "
               "multiplicity correction, a generalisation-gap audit and a "
               "label permutation control.")
+    lc = A.get("loco") or {}
     para(doc, "Two findings are positive and both replicate or transfer. "
               "Molecular features add prognostic information beyond "
               "clinical covariates, measured two independent ways on two "
               "independently fitted targets, with every difference "
               "surviving correction. And the learned representation "
               "stratifies risk in cancer types held out entirely from "
-              f"training, above random in "
-              f"{x.i('cohort','loco.n_above_half')} of "
-              f"{x.i('cohort','loco.n_cohorts')} cohorts and significantly "
-              f"so in {x.i('cohort','loco.n_significant')}, which rules "
-              "out the explanation that the pooled result is cohort "
-              "detection in disguise.")
+              f"training, above random in {iv(lc.get('n_above_half'))} of "
+              f"{iv(lc.get('n_cohorts'))} cohorts, with the log-rank test "
+              f"significant in {iv(lc.get('n_p_lt_05'))} of them before "
+              f"multiplicity correction and {iv(lc.get('n_q_lt_05'))} after "
+              "it. That is the evidence against the explanation that the "
+              "pooled result is cohort detection in disguise. It is "
+              "evidence rather than proof: Section 6.14.1 documents an "
+              "unexplained fault in the classification half of the same "
+              "experiment, and although the argument there is that the "
+              "survival half is untouched, the finding should be read as "
+              "provisional until that fault is found.")
+    _best = x.g("cohort", "best_balanced_accuracy") or {}
+    best_name = _best.get("model", "the strongest baseline")
+    best_val = _best.get("value")
     para(doc, "One finding is negative and it is the one that governs how "
               "the rest should be read. Under the paired, corrected "
               "comparison MOSAIC-GNN does not outperform established "
               "methods on either classification endpoint, and it is "
               "competitive rather than superior on survival ranking. "
-              "A penalised linear model reaches "
-              f"{x.best('cohort','best_balanced_accuracy')} on the "
-              "32-class problem where the proposed model reaches "
-              f"{x.n('cohort','mosaic_balanced_accuracy')}. The graph "
+              f"On the {iv(lc.get('n_cohorts'))}-class problem the best "
+              f"comparator, {best_name}, reaches a balanced accuracy of "
+              f"{fv(best_val, 3)} where the proposed model reaches "
+              f"{fv((A.get('panel') or {}).get('balanced_accuracy'), 3)}. "
+              "The graph "
               "components measurably help the model that contains them, "
               "but they do not close that gap, and the clinical covariates "
               "contribute more than all of them combined.")
@@ -1362,6 +1372,16 @@ def ch8(doc, x: F, n: N, A: dict):
 
     section(doc, "8.3 Future Work")
     bullets(doc, [
+        ("Debug the leave-one-cancer-out classification path. ",
+         "Section 6.14.1 reports single-class recalls that the experiment's "
+         "design should make impossible. This is the first thing to fix, "
+         "not because those numbers are wanted — they are uninterpretable "
+         "either way — but because the survival transfer from the same "
+         "experiment is one of the project's two positive findings and its "
+         "security currently rests on an argument rather than on a clean "
+         "run. The two candidate explanations to test are a label-space "
+         "re-indexing between fitting and scoring, and the held-out class "
+         "acting as the default output for out-of-distribution inputs."),
         ("Close the comparison properly. ", "The sample-size curve has not "
          "flattened. Refitting on a larger assembled cohort, or on a "
          "genome-wide feature space with the pre-commitment preserved by "
@@ -1386,16 +1406,6 @@ def ch8(doc, x: F, n: N, A: dict):
          "experiment, because that finding is the one with clinical "
          "implications and the one this study could not replicate outside "
          "its own data source."),
-        ("Debug the leave-one-cancer-out classification path. ",
-         "Section 6.14.1 reports single-class recalls that the experiment's "
-         "design should make impossible. This is the first thing to fix, "
-         "not because those numbers are wanted — they are uninterpretable "
-         "either way — but because the survival transfer from the same "
-         "experiment is one of the project's two positive findings and its "
-         "security currently rests on an argument rather than on a clean "
-         "run. The two candidate explanations to test are a label-space "
-         "re-indexing between fitting and scoring, and the held-out class "
-         "acting as the default output for out-of-distribution inputs."),
         ("Investigate the transfer gradient. ", "The negative correlation "
          "between transfer quality and the held-out cohort's event rate is "
          "the most interesting unexplained observation in the report and "
@@ -3345,9 +3355,8 @@ def ch6_uncertainty(doc, x: F, n: N, A: dict, S: dict, figdir: str):
               "columns separate those cases.", space_before=8)
     para(doc, "Recalibration was not run. Temperature scaling fitted on "
               "the validation split would very likely fix the cohort "
-              "column, and Section 8.3 lists it as the first piece of "
-              "future work, but it is not reported here because it was not "
-              "executed.")
+              "column, and Section 8.3 lists it among the future work, but "
+              "it is not reported here because it was not executed.")
     add_figure(doc, f"{figdir}/fig3_classification.png")
     caption(doc, n.f() + ":", "Per-class behaviour on the held-out fold, "
                               "with each class's support shown alongside "

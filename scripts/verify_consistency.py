@@ -313,6 +313,18 @@ def main() -> int:
                       "PASS" if ok else "FAIL",
                       f"max |diff| = {pr['q_max_abs_diff']:.2e}" if pr
                       else "paired export absent"))
+    # Every "Section N.M" the report points at must exist as a heading.
+    # Renumbering a chapter is exactly how a cross-reference goes stale, and
+    # a stale one sends a reader to the wrong page.
+    raw = docx_text(a.report)
+    heads = set(re.findall(r"(?<![\d.])(\d+\.\d+(?:\.\d+)?) [A-Z]", raw))
+    refs = set(re.findall(r"Section (\d+\.\d+(?:\.\d+)?)", raw))
+    stale = sorted(refs - heads)
+    extra.append(("report cross-references all resolve",
+                  "PASS" if not stale else "FAIL",
+                  f"{len(refs)} references checked" if not stale
+                  else "no heading for: " + ", ".join(stale)))
+
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
     disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
