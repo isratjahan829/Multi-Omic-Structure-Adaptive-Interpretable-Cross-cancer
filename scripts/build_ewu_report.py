@@ -1823,6 +1823,24 @@ def pv(v, floor=None, dash="—"):
     return f"{f:.4f}"
 
 
+def pctf(v, dash="—"):
+    """A percentage: one decimal, more only when one would read as zero."""
+    if v is None:
+        return dash
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f != f:
+        return dash
+    if f == 0:
+        return "0 %"
+    for d in (1, 2, 3):
+        if round(f, d) != 0:
+            return f"{f:.{d}f} %"
+    return f"{f:.1e} %"
+
+
 def iv(v, dash="—"):
     if v is None:
         return dash
@@ -2603,9 +2621,9 @@ def ch6_gain(doc, x: F, n: N, A: dict, S: dict):
                     ["Difference in C-index",
                      fv(mgc.get("delta"), 4), fv(mgs.get("delta"), 4)],
                     ["Relative improvement",
-                     (fv(100 * mgc["delta"] / mgc["clinical_only"], 1) + " %"
+                     (pctf(100 * mgc["delta"] / mgc["clinical_only"])
                       if mgc.get("clinical_only") else "—"),
-                     (fv(100 * mgs["delta"] / mgs["clinical_only"], 1) + " %"
+                     (pctf(100 * mgs["delta"] / mgs["clinical_only"])
                       if mgs.get("clinical_only") else "—")],
                     ["MOSAIC-GNN minus clinical-only Cox (paired)",
                      fv(x.g("cohort", _CCO), 4),
@@ -3223,13 +3241,13 @@ def ch6_interpret(doc, x: F, n: N, A: dict, runs: str, figdir: str):
                    ["Omic block", "Σ |IG|", "Share"],
                    [["Mutation (binary indicator)",
                      fv(b["ig_mut"]["abs_sum"], 4),
-                     fv(100 * (b["ig_mut"]["share"] or 0), 1) + " %"],
+                     pctf(100 * (b["ig_mut"]["share"] or 0))],
                     ["Copy number (discrete level)",
                      fv(b["ig_cna"]["abs_sum"], 4),
-                     fv(100 * (b["ig_cna"]["share"] or 0), 1) + " %"],
+                     pctf(100 * (b["ig_cna"]["share"] or 0))],
                     ["Expression (z-score)",
                      fv(b["ig_exp"]["abs_sum"], 4),
-                     fv(100 * (b["ig_exp"]["share"] or 0), 1) + " %"],
+                     pctf(100 * (b["ig_exp"]["share"] or 0))],
                     ["Total", fv(it.get("block_total"), 4), "100 %"]],
                    widths=[2.6, 1.5, 1.2], font=9.0)
         rows_table(doc, n.t(),
@@ -3255,7 +3273,7 @@ def ch6_interpret(doc, x: F, n: N, A: dict, runs: str, figdir: str):
         para(doc, "The omic decomposition is the informative part. "
                   "Attribution is dominated by expression and copy number; "
                   "mutation carries "
-                  f"{fv(100 * (b['ig_mut']['share'] or 0), 1)} % of the "
+                  f"{pctf(100 * (b['ig_mut']['share'] or 0))} of the "
                   "total. For a model given a binary mutation indicator "
                   "over a 469-gene panel that is the expected result — a "
                   "binary flag over a small panel carries far less variance "
@@ -3393,7 +3411,7 @@ def ch6_cost(doc, x: F, n: N, A: dict, S: dict):
                "network of each run. The share column is that component's "
                "parameters divided by the total.",
                ["Component", "Parameters (cohort run)", "Share"],
-               [[name, iv(v), fv(100 * (share or 0), 1) + " %"]
+               [[name, iv(v), pctf(100 * (share or 0))]
                 for name, v, share in blocks]
                + [["Total", iv(c.get("trainable_parameters")), "100 %"]],
                widths=[2.2, 2.1, 1.0], font=9.0)
@@ -3596,11 +3614,11 @@ def ch6_stage(doc, x: F, n: N, S: dict, runs_stage: str):
                    "of the three.",
                    ["Omic block", "Σ |IG|", "Share"],
                    [["Mutation", fv(b["ig_mut"]["abs_sum"], 4),
-                     fv(100 * (b["ig_mut"]["share"] or 0), 1) + " %"],
+                     pctf(100 * (b["ig_mut"]["share"] or 0))],
                     ["Copy number", fv(b["ig_cna"]["abs_sum"], 4),
-                     fv(100 * (b["ig_cna"]["share"] or 0), 1) + " %"],
+                     pctf(100 * (b["ig_cna"]["share"] or 0))],
                     ["Expression", fv(b["ig_exp"]["abs_sum"], 4),
-                     fv(100 * (b["ig_exp"]["share"] or 0), 1) + " %"]],
+                     pctf(100 * (b["ig_exp"]["share"] or 0))]],
                    widths=[2.2, 1.5, 1.2], font=9.0)
         csv_table(doc, f"{runs_stage}/table7_gene_importance.csv", n.t(),
                   "Top 15 genes by attribution on the stage_binary "
