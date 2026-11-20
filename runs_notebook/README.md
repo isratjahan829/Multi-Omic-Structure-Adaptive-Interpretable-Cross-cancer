@@ -24,7 +24,7 @@ Three directories, three provenances, and the distinction matters:
 | Directory | Data | Configuration | Quotable as a result? |
 |---|---|---|---|
 | `runs/` | **synthetic** | smoke test | **No. Never.** |
-| `runs_notebook/` | real | reduced (60 genes, 3 epochs) | No — demonstration only |
+| `runs_notebook/` | real | reduced (80 genes, 4 epochs as shipped) | No — demonstration only |
 | `runs_pan_cohort/`, `runs_pan_stage/` | real | manuscript (200 genes, 20 epochs) | **Yes** |
 
 Earlier the notebook wrote into `runs/`, putting real reduced output in the
@@ -46,9 +46,11 @@ now fails if that drift returns.
 
 ## What the reduction costs, measured at three gene budgets
 
-The shipped notebook runs at **60 genes, 3 epochs**. An earlier execution used
-120 genes and 6 epochs, and the manuscript used 200 genes and 20 epochs. That
-gives three points for MOSAIC-GNN and two for the strongest baseline:
+These three points were measured on the **`stage_binary`** target at 60, 120
+and 200 genes. They are kept because the trend they show is the evidence for
+the compute-ceiling limitation, but note that none of them is the invocation
+the notebook ships today (`cohort`, 80 genes, 4 epochs) — comparing them with
+what the current notebook prints would be comparing two different targets.
 
 | Genes / epochs | MOSAIC-GNN bacc | `lightgbm` bacc | Gap |
 |---|---|---|---|
