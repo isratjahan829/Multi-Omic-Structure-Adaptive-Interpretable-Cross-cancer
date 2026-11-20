@@ -329,8 +329,18 @@ executed notebook's own output, and exits non-zero if any headline number is
 missing from one of them:
 
 ```bash
-python scripts/verify_consistency.py       # 49 numeric + 6 structural checks
+python scripts/verify_consistency.py                    # fast
+python scripts/verify_consistency.py --rebuild-report   # thorough
 ```
+
+The fast run makes 52 numeric and 13 structural checks, among them that the
+pooled metrics reproduce from the per-class tables, that the stored
+Benjamini-Hochberg q-values reproduce from the p-values, that every
+cross-reference in the report resolves, that no figure is older than the data
+it is drawn from, and that the single-file runnable still matches the sources
+it embeds. The thorough run adds a full rebuild of the report and checks that
+the shipped `.docx` is textually identical to it, which is the check that
+catches an edit to the builder that was never rebuilt.
 
 Run it before submitting either document. The manuscript numbers themselves
 come from the full schedule, `scripts/run_pan.sh`.

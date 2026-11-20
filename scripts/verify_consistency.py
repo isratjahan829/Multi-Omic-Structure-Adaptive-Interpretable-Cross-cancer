@@ -186,6 +186,10 @@ def main() -> int:
     ap.add_argument("--payload", default=os.path.join(
         REPO, "deliverables", "manuscript_payload.json"))
     ap.add_argument("--figures", default=os.path.join(REPO, "figures"))
+    ap.add_argument("--rebuild-report", action="store_true",
+                    help="also rebuild the report and check that the shipped "
+                         ".docx matches it; slow, because the build renders "
+                         "the document twice to measure its contents page")
     ap.add_argument("--report", default=os.path.join(
         REPO, "deliverables", "CSE400B-MOSAIC-GNN-Report.docx"))
     ap.add_argument("--notebook", default=os.path.join(
@@ -419,6 +423,36 @@ def main() -> int:
                               "a rebuild is byte-identical" if same else
                               "the shipped file differs from a rebuild; run "
                               "scripts/build_standalone.py"))
+
+    # The shipped .docx can fall behind its builder exactly as the PDF did
+    # once in this project's history. A rebuild is textually identical when
+    # nothing has drifted, so compare the text -- not the bytes, because a
+    # .docx is a zip and carries timestamps. Opt-in because the build runs
+    # LibreOffice twice to measure the contents page.
+    if a.rebuild_report:
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = os.path.join(tmp, "rebuilt.docx")
+            r = subprocess.run(
+                [sys.executable, os.path.join(HERE, "build_ewu_report.py"),
+                 "--out", probe, "--workdir", os.path.join(tmp, "toc")],
+                capture_output=True, text=True, timeout=1800)
+            if r.returncode != 0:
+                extra.append(("report matches its builder", "FAIL",
+                              "the builder failed: "
+                              + (r.stderr.strip().splitlines() or [""])[-1]))
+            else:
+                same = squash(docx_text(a.report)) == squash(
+                    docx_text(probe))
+                extra.append(("report matches its builder",
+                              "PASS" if same else "FAIL",
+                              "a rebuild is textually identical" if same else
+                              "the shipped .docx differs from a rebuild; run "
+                              "scripts/build_ewu_report.py"))
+    else:
+        extra.append(("report matches its builder", "SKIP",
+                      "pass --rebuild-report to check (runs the full build)"))
 
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
