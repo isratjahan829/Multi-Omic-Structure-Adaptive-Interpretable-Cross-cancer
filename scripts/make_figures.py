@@ -44,6 +44,10 @@ C4, C8 = "#eda100", "#e34948"
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#8a8982"
 GRID = "#e3e2de"
 
+# The measured run-to-run spread of the pipeline under a fixed seed. Drawn on
+# the ablation panels because an arm inside it is not an effect.
+FLOOR = 0.01
+
 plt.rcParams.update({
     "figure.dpi": 150,
     "savefig.dpi": 300,
@@ -305,7 +309,26 @@ def fig_ablation(abl: dict, out: str) -> str:
     mets = [m for m in ("balanced_accuracy", "auroc", "c_index")
             if m in base]
     names = [k for k in abl if k != "full"]
-    fig, ax = plt.subplots(figsize=(max(6.4, 1.6 * len(names) + 3.4), 4.8))
+
+    # Two panels. On one scale the clinical arms are so large that the five
+    # structural arms become invisible, and whether those clear the noise
+    # floor is the question the section actually asks. Panel (b) therefore
+    # repeats the arms whose largest effect is within ten noise floors --
+    # a rule applied to the data, not a hand-picked subset.
+    def worst(n):
+        return max(abs(abl[n][m]["mean"] - base[m]["mean"]) for m in mets)
+
+    small = [n for n in names if worst(n) <= 10 * FLOOR]
+    two = len(small) >= 2 and len(small) < len(names)
+    fig, axes = plt.subplots(
+        1, 2 if two else 1,
+        figsize=((max(6.4, 1.1 * len(names) + 2.0)
+                  + max(4.2, 1.0 * len(small) + 1.6)) if two
+                 else max(6.4, 1.6 * len(names) + 3.4), 4.8),
+        gridspec_kw={"width_ratios": [len(names), max(2, len(small))]}
+        if two else None)
+    panels = list(axes) if two else [axes]
+    ax = panels[0]
     # Keep bars narrow when few variants are present, so two arms do not
     # render as two slabs filling the panel.
     group = min(0.8, 0.26 * len(mets))
@@ -317,7 +340,7 @@ def fig_ablation(abl: dict, out: str) -> str:
                color=col, label=m.replace("_", " "))
     ax.axhline(0, color=INK2, linewidth=1)
     # The noise floor, drawn, because a bar inside it is not an effect.
-    ax.axhspan(-0.01, 0.01, color=MUTED, alpha=0.16, zorder=0)
+    ax.axhspan(-FLOOR, FLOOR, color=MUTED, alpha=0.16, zorder=0)
     ax.text(0.995, 0.985, "shaded band = ±0.01 noise floor",
             transform=ax.transAxes, fontsize=7.5, color=INK2, ha="right",
             va="top")
@@ -332,7 +355,40 @@ def fig_ablation(abl: dict, out: str) -> str:
     ax.legend(ncol=len(mets), loc="lower center",
               bbox_to_anchor=(0.5, 1.045), borderaxespad=0)
     ax.grid(axis="x", visible=False)
+    if two:
+        ax.set_title("(a) Every arm, on one scale")
     tidy(ax)
+
+    if two:
+        ax2 = panels[1]
+        for i, (m, col) in enumerate(zip(mets, [C1, C2, C3])):
+            deltas = [abl[n][m]["mean"] - base[m]["mean"] for n in small]
+            bars = ax2.bar([x + off + i * w for x in range(len(small))],
+                           deltas, width=w, color=col)
+            if m == mets[0]:
+                # Direct labels on the headline metric only: with fifteen
+                # bars a number on each would be noise, and this is the
+                # series the section's argument is made on.
+                for bar, d in zip(bars, deltas):
+                    ax2.text(bar.get_x() + bar.get_width() / 2,
+                             d - 0.0016, f"{d:.4f}", ha="center", va="top",
+                             fontsize=6.8, color=INK)
+        ax2.axhline(0, color=INK2, linewidth=1)
+        ax2.axhspan(-FLOOR, FLOOR, color=MUTED, alpha=0.16, zorder=0)
+        lo = min(abl[n][m]["mean"] - base[m]["mean"]
+                 for n in small for m in mets)
+        ax2.set_ylim(min(lo * 1.45, -2.2 * FLOOR), max(1.6 * FLOOR, 0.004))
+        ax2.set_xticks([x + off + group / 2 for x in range(len(small))])
+        ax2.set_xticklabels([n.replace("no_", "−") for n in small],
+                            fontsize=8.5)
+        ax2.set_xlim(-0.1, len(small) - 0.1)
+        ax2.set_title("(b) The same arms within ten noise floors, enlarged")
+        ax2.grid(axis="x", visible=False)
+        ax2.text(0.985, 0.03, "a bar inside the band is not an effect",
+                 transform=ax2.transAxes, fontsize=7.5, color=INK2,
+                 ha="right", va="bottom")
+        tidy(ax2)
+
     fig.tight_layout(); fig.savefig(out); plt.close(fig)
     return out
 

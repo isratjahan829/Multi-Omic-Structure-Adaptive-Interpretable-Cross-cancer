@@ -2964,10 +2964,20 @@ def ch6_ablation(doc, x: F, n: N, A: dict, figdir: str):
                 "were reached.", False)])
     add_figure(doc, f"{figdir}/fig5_ablation.png")
     caption(doc, n.f() + ":", "Change in each headline metric when a single "
-                              "component is removed. Negative values mean "
-                              "the component helped. Effects smaller than "
-                              "the measured noise floor are not "
-                              "interpretable.", above=False)
+                              "component is removed; negative means the "
+                              "component helped, and the shaded band is the "
+                              "measured ±0.01 noise floor. (a) every arm on "
+                              "one scale, which shows how far the clinical "
+                              "arms dominate; (b) the same arms whose "
+                              "largest effect is within ten noise floors, "
+                              "enlarged so that the question this section "
+                              "asks can actually be read off the figure — "
+                              "the gene graph, patient graph and module "
+                              "pooling extend below the band, the two "
+                              "auxiliary objectives end inside it. The "
+                              "balanced-accuracy bars carry direct labels "
+                              "in (b); labelling all fifteen would be "
+                              "noise.", above=False)
 
 
 def ch6_permutation(doc, x: F, n: N, A: dict):
