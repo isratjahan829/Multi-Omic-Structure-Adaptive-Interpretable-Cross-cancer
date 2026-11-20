@@ -615,9 +615,15 @@ if RUN_FULL and NB_LOCO > 0:
     held_out = list(cfg.data.cohorts)[:NB_LOCO]
     print(f"leave-one-cancer-out: {len(held_out)} of "
           f"{len(cfg.data.cohorts)} cohorts ({', '.join(held_out)}), one fit "
-          f"each. On the {TARGET} target note that a held-out class is never "
-          f"seen in training, so its balanced accuracy is near zero by "
-          f"construction -- only the survival transfer carries information.")
+          f"each. Only the survival transfer carries information here. On "
+          f"the {TARGET} target the held-out fold contains one class, so "
+          f"balanced accuracy collapses to that class's recall and Matthews "
+          f"correlation is 0 by construction -- the classification metric is "
+          f"DEGENERATE, which is not the same as small. An earlier version "
+          f"of this message said it was 'near zero by construction'; that "
+          f"was wrong and the run disproved it. See Section 6.14.1 of the "
+          f"report, which also documents an unexplained fault in this "
+          f"path.")
     for held in held_out:
         a, b = exp.offsets[held]
         te = np.arange(a, b)

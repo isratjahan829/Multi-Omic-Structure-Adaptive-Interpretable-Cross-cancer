@@ -454,6 +454,29 @@ def main() -> int:
         extra.append(("report matches its builder", "SKIP",
                       "pass --rebuild-report to check (runs the full build)"))
 
+    # The claim that leave-one-cancer-out balanced accuracy is "near zero by
+    # construction" was falsified and withdrawn. It may appear only inside a
+    # sentence that says so. Anywhere else -- including a line printed by a
+    # cell -- it is the retracted claim being made again.
+    RETRACT = ("wrong", "falsif", "withdraw", "retract", "disprov",
+               "earlier", "no longer")
+    def bare_claims(text, label):
+        out = []
+        for m in re.finditer(r"near(?:ly)? zero", text, re.I):
+            window = text[max(0, m.start() - 320): m.end() + 320].lower()
+            if not any(w in window for w in RETRACT):
+                out.append(label + ": ..." + text[max(0, m.start() - 60):
+                                                  m.end() + 60].strip())
+        return out
+    offenders = bare_claims(squash(docx_text(a.report)), "report")
+    offenders += bare_claims(c.nb, "notebook output")
+    offenders += bare_claims(squash(notebook_markdown(a.notebook)),
+                             "notebook prose")
+    extra.append(("the retracted near-zero claim is only ever retracted",
+                  "PASS" if not offenders else "FAIL",
+                  "no bare restatement found" if not offenders
+                  else offenders[0][:150]))
+
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
     disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
