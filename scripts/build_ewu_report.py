@@ -936,6 +936,183 @@ def ch4(doc, x: F, n: N, A: dict, figdir: str):
               "log-rank statistic over model-defined risk tertiles for "
               "survival.")
 
+    section(doc, "4.7 Mathematical Formulation")
+    para(doc, "This section states the model as equations, so that the prose "
+              "above can be checked against it. Write B for the patients in a "
+              "batch, G for the genes of the panel, M for the functional "
+              "modules, R for the edge relations and H for the attention "
+              "heads. Patient i enters as a matrix x_i in R^(G x 3), one row "
+              "per gene, holding that gene's mutation indicator, copy-number "
+              "level and expression z-score.")
+    rich(doc, [("Gene level: relational graph attention over a shared "
+                "topology. ", True),
+               ("The topology is one edge list for every patient — protein "
+                "interactions do not depend on who is being modelled — while "
+                "the attention coefficients are computed per patient, which "
+                "is what makes the rewiring in Section 6.15 personal to each "
+                "one. For relation r, head k and edge u to v:", False)])
+    formula(doc, "h_u^(r) = W_r x_u")
+    formula(doc, "e_uv^(r,k) = LeakyReLU_0.2( a_src^(r,k) · h_u^(r,k) "
+                 "+ a_dst^(r,k) · h_v^(r,k) + b_(r,k) ) + log w_uv")
+    formula(doc, "α_uv^(k) = exp( e_uv^(k) ) / Σ_(u' in N(v)) "
+                 "exp( e_(u'v)^(k) )")
+    formula(doc, "h'_v = LayerNorm( W_res x_v + concat_k [ "
+                 "Σ_(u in N(v)) α_uv^(k) h_u^(r_uv, k) ] + b )")
+    para(doc, "Two details of that are worth naming because they are "
+              "choices, not conventions. The edge weight enters as an "
+              "additive log term inside the exponent, which is exactly a "
+              "multiplicative weight on the softmax, so a weak edge is "
+              "down-weighted rather than thresholded away. And the softmax "
+              "is taken over each node's incoming edges separately — a "
+              "segment softmax — implemented as a scatter-add, which is the "
+              "operation whose non-deterministic summation order produces "
+              "the noise floor measured in Section 6.5.")
+    rich(doc, [("Module pooling with a within-module gate. ", True),
+               ("Let the fixed assignment matrix be S in {0,1}^(G x M), "
+                "with S_gm = 1 when gene g belongs to module m. A scalar "
+                "gate scores each gene, and the scores are normalised inside "
+                "each module rather than across all genes:", False)])
+    formula(doc, "s_g = MLP( h'_g ),      "
+                 "w_gm = S_gm · exp(s_g) / Σ_(g' in m) exp(s_(g'))")
+    formula(doc, "z_m = Proj( Σ_g w_gm h'_g ),      "
+                 "gate_g = Σ_m w_gm")
+    para(doc, "The last quantity is what Section 6.15 reports as the learned "
+              "per-gene gate: it is the total weight that gene received "
+              "across the modules it belongs to, so it is readable without "
+              "any post-hoc attribution method.")
+    rich(doc, [("Module attention readout. ", True),
+               ("A single learned query collapses the M module embeddings "
+                "into one patient vector, and the attention it uses is the "
+                "module importance reported in Section 6.15:", False)])
+    formula(doc, "β_m = softmax_m( (W_k z_m) · q / √d ),      "
+                 "z = Out( Σ_m β_m W_v z_m )")
+    rich(doc, [("Patient level: a learned graph. ", True),
+               ("Similarity is measured in H learned metric subspaces, each "
+                "a diagonal reweighting θ_h of the embedding, and the dense "
+                "affinity is sparsified to the k nearest anchors:", False)])
+    formula(doc, "S_nm = (1/H) Σ_h u_h(n) · u_h(m) / τ,      "
+                 "u_h(n) = normalise( z_n * θ_h )")
+    formula(doc, "A = rownormalise( topk_k( softmax(S) ) + I )")
+    para(doc, "Self-similarity is masked out before the top-k, and during "
+              "training only patients in the training split may act as "
+              "sources, so a held-out patient can receive information but "
+              "never supply it. The top-k is sparse in the forward pass and "
+              "differentiable in the backward one through a straight-through "
+              "estimator, mask = hard + soft − detach(soft), which is what "
+              "lets the metric θ be learned at all. Propagation is then")
+    formula(doc, "h^(l+1) = LayerNorm( h^(l) + MLP( A h^(l) ) )")
+    para(doc, "Because the gene-level encoder cannot be run on every patient "
+              "at once, out-of-batch neighbours contribute through a bank of "
+              "their most recent embeddings, updated with momentum and "
+              "detached from the graph. That is the standard historical-"
+              "embedding approximation and it is the reason memory stays "
+              "linear in the batch size rather than in the cohort.")
+    rich(doc, [("Disentanglement. ", True),
+               ("The patient vector is split as z = [z_shared, z_specific]. "
+                "A cohort classifier is attached to each, but the shared "
+                "branch passes through a gradient-reversal layer, which is "
+                "the identity forwards and multiplies the gradient by −λ "
+                "backwards, so the encoder is pushed to make the cohort hard "
+                "to recover from z_shared. A cross-covariance penalty keeps "
+                "the two parts from duplicating each other:", False)])
+    formula(doc, "L_orth = mean[ ( A*^T B* )² ],      A* and B* = the two "
+                 "latents, centred and column-normalised")
+    rich(doc, [("Heads and objective. ", True),
+               ("Three heads sit on the representation. The classifier is a "
+                "weighted cross-entropy with label smoothing. The Cox head "
+                "maximises the Breslow partial likelihood, the risk set "
+                "being the patients still at risk at each event time:",
+                False)])
+    formula(doc, "L_cox = − (1 / Σ_i d_i) Σ_i d_i [ r_i − log Σ_(j: T_j ≥ "
+                 "T_i) exp(r_j) ]")
+    para(doc, "with r_i the predicted risk, T_i the follow-up time and "
+              "d_i the event indicator. The discrete-time head models the "
+              "hazard in each of twelve follow-up bins, which gives a "
+              "survival curve the Cox score alone cannot:")
+    formula(doc, "L_haz = − (1/N) Σ_i [ Σ_(j < k_i) log(1 − h_ij) "
+                 "+ d_i log h_(i k_i) + (1 − d_i) log(1 − h_(i k_i)) ]")
+    para(doc, "where k_i is the bin in which patient i was last observed. A "
+              "censored patient contributes only the survival part, which is "
+              "the whole point of the construction. The contrastive term is "
+              "a symmetric InfoNCE across omic views, treating the same "
+              "patient seen through two assays as a positive pair, and the "
+              "graph regulariser keeps the learned patient graph smooth, "
+              "sparse and non-degenerate:")
+    formula(doc, "L_graph = w_s Σ_nm A_nm ||z_n − z_m||² / N² "
+                 "+ w_sp Σ A² / N² − w_d mean_n log( Σ_m A_nm ) / N")
+    para(doc, "The total objective is the weighted sum of these terms. The "
+              "weights are not chosen here for exposition; they are read "
+              "from the configuration file the run itself saved, so the "
+              "table below is the objective that was actually optimised.")
+    formula(doc, "L = w_class L_class + w_cox L_cox + w_haz L_haz "
+                 "+ λ w_adv L_adv + w_coh L_coh + w_orth L_orth "
+                 "+ w_con L_con + w_graph L_graph")
+    cfg = x.aux.get("config") or {}
+    loss = cfg.get("loss") or {}
+    model = cfg.get("model") or {}
+    graph = cfg.get("graph") or {}
+    if loss:
+        rows_table(doc, n.t(),
+                   "The objective's weights and the model's principal "
+                   "dimensions, read from the configuration the cohort run "
+                   "saved alongside its checkpoint. Nothing in this table "
+                   "was chosen for the report.",
+                   ["Symbol or setting", "Meaning", "Value"],
+                   [["w_class", "weight of the classification "
+                                "cross-entropy", fv(loss.get("w_class"), 2)],
+                    ["w_cox", "weight of the Cox partial likelihood",
+                     fv(loss.get("w_cox"), 2)],
+                    ["w_haz", "weight of the discrete-time hazard likelihood",
+                     fv(loss.get("w_hazard"), 2)],
+                    ["w_adv", "weight of the cohort adversary, through the "
+                              "reversal layer",
+                     fv(loss.get("w_adversarial"), 2)],
+                    ["w_coh", "weight of the cohort head on z_specific",
+                     fv(loss.get("w_cohort"), 2)],
+                    ["w_orth", "weight of the cross-covariance penalty",
+                     fv(loss.get("w_orthogonal"), 2)],
+                    ["w_con", "weight of the cross-omic contrastive term",
+                     fv(loss.get("w_contrast"), 2)],
+                    ["w_graph", "weight of the patient-graph regulariser",
+                     fv(loss.get("w_graph_reg"), 3)],
+                    ["temperature", "contrastive temperature",
+                     fv(loss.get("contrast_temp"), 2)],
+                    ["label smoothing", "applied in the classification term",
+                     fv(loss.get("label_smoothing"), 2)],
+                    ["R", "edge relations in the gene graph",
+                     iv(graph.get("n_relations"))],
+                    ["H", "attention heads at the gene level",
+                     iv(model.get("gene_heads"))],
+                    ["gene layers", "stacked relational attention layers",
+                     iv(model.get("gene_layers"))],
+                    ["gene width", "hidden dimension per gene",
+                     iv(model.get("gene_hidden"))],
+                    ["M", "functional modules",
+                     iv(graph.get("n_modules"))],
+                    ["minimum module size", "modules smaller than this are "
+                                            "merged",
+                     iv(graph.get("module_min_size"))],
+                    ["k (patients)", "neighbours in the learned patient "
+                                     "graph", iv(graph.get("patient_knn"))],
+                    ["τ", "temperature of the patient-similarity softmax",
+                     fv(graph.get("graph_learner_temp"), 2)],
+                    ["patient layers", "propagation steps over the patient "
+                                       "graph",
+                     iv(model.get("patient_layers"))],
+                    ["dim z_shared", "width of the shared representation",
+                     iv(model.get("z_shared"))],
+                    ["dim z_specific", "width of the cohort-specific part",
+                     iv(model.get("z_specific"))],
+                    ["survival bins", "bins of the discrete-time hazard head",
+                     iv(model.get("n_survival_bins"))],
+                    ["dropout", "on the representation",
+                     fv(model.get("dropout"), 2)],
+                    ["edge dropout", "on gene-graph edges during training",
+                     fv(model.get("edge_dropout"), 2)]],
+                   widths=[1.5, 3.4, 1.0], font=9.0)
+
+
+
 
 # --------------------------------------------------------------------------- #
 # Chapter 5 - Experimental Setup
@@ -1622,6 +1799,16 @@ def page_setup(doc):
 
 
 def load_aux(x: F, runs: str):
+    # The run's own configuration, so Section 4.7's objective weights and
+    # dimensions are the ones that were optimised rather than ones retyped.
+    for name in ("cohort_config.json", "stage_binary_config.json"):
+        cf = os.path.join(runs, name)
+        if os.path.isfile(cf):
+            with open(cf) as fh:
+                x.aux["config"] = json.load(fh)
+            break
+    else:
+        x.missing.add(f"file.{runs}/*_config.json")
     pr = os.path.join(runs, "cohort_parameter_report.json")
     if os.path.isfile(pr):
         with open(pr) as fh:

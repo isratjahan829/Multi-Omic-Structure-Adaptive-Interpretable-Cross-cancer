@@ -347,6 +347,28 @@ def main() -> int:
                       if says_single else
                       "the report does not state the single-fold limitation"))
 
+    # Characters that Times New Roman does not carry through LibreOffice
+    # render as a different glyph or get displaced, which the PDF makes
+    # visible and the .docx does not. Combining marks (p-hat, x-bar) and a
+    # handful of maths symbols were each caught that way once.
+    import unicodedata
+    allowed = set("—−\u03a3·\u0394\u221a–\u03ba±≥≤\u03c7≠…→•²"
+                  "\u03b1\u03b2\u03b8\u03c4\u03bb")
+    offenders = {}
+    for ch in docx_text(a.report):
+        if ord(ch) < 128 or ch in allowed:
+            continue
+        cat = unicodedata.category(ch)
+        name = unicodedata.name(ch, "?")
+        if cat.startswith("M") or "SUBSCRIPT" in name or ord(ch) > 0x2200:
+            offenders[f"U+{ord(ch):04X} {name}"] = (
+                offenders.get(f"U+{ord(ch):04X} {name}", 0) + 1)
+    extra.append(("report uses only glyphs that render",
+                  "PASS" if not offenders else "FAIL",
+                  "no combining marks or unverified maths symbols"
+                  if not offenders else
+                  "; ".join(f"{k} x{v}" for k, v in offenders.items())))
+
     nb_ok = "checks PASS" in c.nb
     # The anomaly must be disclosed, not quietly dropped, in both documents.
     disclosed_report = "UNEXPLAINED" in c.report.upper() or squash(
