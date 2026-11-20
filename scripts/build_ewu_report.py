@@ -2903,21 +2903,26 @@ def ch6_ablation(doc, x: F, n: N, A: dict, figdir: str):
             rows.append([
                 a["arm"], fv(a.get("balanced_accuracy"), 4),
                 fv(a.get("balanced_accuracy_sd"), 4),
-                fv(a.get("auroc"), 4), fv(a.get("c_index"), 4),
                 fv(a.get("delta"), 4), fv(a.get("floors"), 1),
-                "yes" if a.get("outside") else "no"])
+                "yes" if a.get("outside") else "no",
+                fv(a.get("fold_se"), 4), fv(a.get("z_vs_folds"), 2),
+                "yes" if a.get("secure_vs_folds") else "no"])
         rows_table(doc, n.t(),
-                   "Ablation at reduced settings. SD is the spread over the "
-                   "two folds of that arm. Δ is the change in balanced "
-                   "accuracy against the full model on the same folds, and "
-                   "the floors column is |Δ| divided by the measured "
-                   "run-to-run spread of 0.01; the last column says whether "
-                   "the effect is larger than that spread and therefore "
-                   "interpretable at all.",
-                   ["Component removed", "BAcc", "SD", "AUROC", "C-index",
-                    "Δ BAcc", "Floors", "Outside the floor?"], rows,
-                   widths=[1.72, 0.72, 0.6, 0.68, 0.72, 0.72, 0.62, 1.1],
-                   font=8.5)
+                   "Ablation at reduced settings, measured against two "
+                   "yardsticks. Δ is the change in balanced accuracy against "
+                   "the full model on the same folds. The floors column is "
+                   "|Δ| divided by the measured run-to-run spread of 0.01, "
+                   "and the column beside it says whether the effect exceeds "
+                   "it. SD is the arm's own spread over its two folds, SE is "
+                   "that divided by the square root of the fold count, and "
+                   "|Δ|/SE asks the different question of whether the effect "
+                   "is large against how much that arm moves between data "
+                   "splits; the last column marks |Δ|/SE of at least 2.",
+                   ["Component removed", "BAcc", "SD", "Δ BAcc", "Floors",
+                    "Outside floor?", "SE", "|Δ|/SE", "Secure vs folds?"],
+                   rows,
+                   widths=[1.6, 0.62, 0.56, 0.62, 0.52, 0.78, 0.56, 0.56,
+                           0.86], font=8.0)
     arms = {a["arm"]: a for a in (ab or {}).get("arms", [])}
 
     def dl(name):
@@ -2946,7 +2951,9 @@ def ch6_ablation(doc, x: F, n: N, A: dict, figdir: str):
               "therefore doing measurable work, even though the whole model "
               "is beaten by simpler comparators. These are modest effects "
               "— one to two times the floor — and they are reported as "
-              "modest.")
+              "modest, and the qualification two paragraphs below narrows "
+              "them further still: on a second yardstick one of the three "
+              "does not hold up.")
     para(doc, "Third, the two auxiliary objectives do not clear it. "
               f"Removing the contrastive term costs {dl('no_contrast')} "
               f"({fl('no_contrast')} floors) and removing disentanglement "
@@ -2954,6 +2961,33 @@ def ch6_ablation(doc, x: F, n: N, A: dict, figdir: str):
               "this evidence neither can be claimed to contribute; they "
               "cannot be claimed to hurt either, which is the symmetric "
               "and equally important half of the statement.")
+
+    dis = (ab or {}).get("disagree") or []
+    if dis:
+        rich(doc, [("The two yardsticks disagree on one arm, and it is the "
+                    "one the architecture is named for. ", True),
+                   ("The noise floor measures how much the pipeline moves "
+                    "when nothing changes, under a fixed seed. It says "
+                    "nothing about how much a given arm moves between data "
+                    "splits, and that is a separate question with a "
+                    "separate answer. Measured against its own fold-to-fold "
+                    "spread, "
+                    + ", ".join(dis) +
+                    " is not secure: its two folds disagree by enough that "
+                    "the effect is about "
+                    + fv(next((a["z_vs_folds"] for a in ab["arms"]
+                               if a["arm"] in dis), None), 1) +
+                    " standard errors from zero, where two would be the "
+                    "usual threshold. The other two structural arms are "
+                    "secure on both yardsticks, by a wide margin, because "
+                    "their folds agree closely. So the honest summary of "
+                    "this section is narrower than it first appears: module "
+                    "pooling and the patient graph are doing measurable "
+                    "work, and the gene graph's contribution is of the "
+                    "right sign and the right order but is not established "
+                    "by two folds at reduced settings. Resolving it needs "
+                    "the full-setting ablation that Section 8.3 lists, not "
+                    "a reinterpretation of these numbers.", False)])
     para(doc, f"Arms outside the floor: {iv((ab or {}).get('n_outside'))}. "
               f"Arms inside it: {iv((ab or {}).get('n_inside'))}. Measured "
               "cost of one arm: "

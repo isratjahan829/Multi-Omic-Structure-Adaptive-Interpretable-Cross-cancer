@@ -682,6 +682,19 @@ def ablation_derived(runs: str, floor: float = NOISE_FLOOR) -> Optional[dict]:
         if rec["delta"] is not None:
             rec["floors"] = abs(rec["delta"]) / floor
             rec["outside"] = abs(rec["delta"]) > floor
+            # A second yardstick. The noise floor is the spread of repeated
+            # fits under a fixed seed; it says nothing about how much an arm
+            # moves between data splits. Each arm also has its own
+            # fold-to-fold standard deviation, and an effect smaller than the
+            # standard error of that is not secure however it compares with
+            # the floor. Both are reported because they disagree for one arm.
+            sd = rec.get("balanced_accuracy_sd")
+            nf = rec.get("balanced_accuracy_n") or 0
+            if sd is not None and nf and nf > 1:
+                se = sd / math.sqrt(nf)
+                rec["fold_se"] = se
+                rec["z_vs_folds"] = (abs(rec["delta"]) / se) if se else None
+                rec["secure_vs_folds"] = (rec["z_vs_folds"] or 0) >= 2.0
         arms.append(rec)
     arms.sort(key=lambda a: (a["delta"] is None, a["delta"]))
     fs = spread("full", "balanced_accuracy")
@@ -690,6 +703,9 @@ def ablation_derived(runs: str, floor: float = NOISE_FLOOR) -> Optional[dict]:
             "full_sd": fs.get("std"), "full_folds": fs.get("n"),
             "n_outside": sum(1 for a in arms if a.get("outside")),
             "n_inside": sum(1 for a in arms if a.get("outside") is False),
+            "disagree": [a["arm"] for a in arms
+                         if a.get("outside") and
+                         a.get("secure_vs_folds") is False],
             "seconds_mean": (secs or {}).get("mean")
             if isinstance(secs, dict) else secs}
 
