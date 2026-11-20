@@ -350,7 +350,8 @@ def tidy_cell(v: str) -> str:
 
 
 def payload_table(doc, x: F, tid: str, label: str, cols=None, rows=None,
-                  widths=None, font=8.5, caption_text=None, head_map=None):
+                  widths=None, font=8.5, caption_text=None, head_map=None,
+                  int_cols=None):
     """Render one payload table under the report's own caption number."""
     g = x.grid(tid)
     caption(doc, label + ":", caption_text or x.tcap(tid))
@@ -364,8 +365,10 @@ def payload_table(doc, x: F, tid: str, label: str, cols=None, rows=None,
     body = g[1:]
     if rows:
         body = [r for r in body if r[0] in rows]
+    ints = {head.index(c) for c in (int_cols or []) if c in head}
     out = [[(head_map or {}).get(head[i], head[i]) for i in keep]]
-    out += [[tidy_cell(r[i]) for i in keep] for r in body]
+    out += [[(iv(r[i]) if i in ints else tidy_cell(r[i])) for i in keep]
+            for r in body]
     add_table(doc, out, widths=widths, font=font)
 
 
@@ -1532,10 +1535,21 @@ def appendix(doc, x: F, n: N, runs: str):
 
     section(doc, "A.1 Per-Cohort Breakdown on the Held-Out Fold")
     payload_table(doc, x, "T2c", "Table A1",
-                  cols=["Cohort", "n", "Acc", "BAcc", "F1-M", "MCC",
-                        "Top-2", "LogLoss", "Brier", "C-index"],
-                  widths=[0.8, 0.5, 0.55, 0.57, 0.57, 0.55, 0.57, 0.65,
-                          0.57, 0.65], font=7.5)
+                  cols=["Cohort", "n", "Acc", "Top-2", "LogLoss", "Brier",
+                        "C-index"],
+                  widths=[1.0, 0.7, 0.8, 0.8, 0.85, 0.8, 0.85], font=8.5,
+                  int_cols=["n"],
+                  head_map={"Acc": "Recall"},
+                  caption_text="Per-cohort results on the held-out fold of "
+                               "the cohort run, as Section 6.13 reports "
+                               "them. The columns that are degenerate in a "
+                               "single-class slice — balanced accuracy, "
+                               "which equals the recall; the "
+                               "chance-corrected measures, which are zero "
+                               "for every row; and the macro averages, "
+                               "which count the model's distinct wrong "
+                               "guesses — are omitted, for the reasons "
+                               "given in Section 6.13.")
 
     section(doc, "A.2 Per-Class Performance")
     payload_table(doc, x, "T2b", "Table A2",
@@ -2908,32 +2922,73 @@ def ch6_percohort(doc, x: F, n: N, A: dict):
     section(doc, "6.13 Per-Cohort Behaviour on the Held-Out Fold")
     pc = A.get("per_cohort")
     para(doc, "A pooled pan-cancer metric is dominated by the large "
-              "cohorts, so the same metrics are computed inside each cohort "
-              "separately. This is the table that shows where the model "
-              "works and where it does not.")
+              "cohorts, so performance is also computed inside each cohort "
+              "separately. That is what shows where the model works and "
+              "where it does not — but only part of the metric panel "
+              "survives being computed one cohort at a time, and the rest "
+              "of this section is about which part.")
+    deg = (A.get("per_cohort_degeneracy") or {}).get("degenerate") or {}
+    if deg:
+        para(doc, "Most of the metric panel cannot be computed per cohort on "
+                  "this target, and the reason is the one Section 6.14 "
+                  "returns to at greater length. A single cohort's slice of "
+                  "the held-out fold contains patients of exactly one class, "
+                  "so the classification problem inside it is not a "
+                  "32-class problem at all. Which columns that ruins was "
+                  "measured rather than assumed, by testing each one "
+                  "against the whole table:")
+        bullets(doc, [
+            (f"{SHORT.get(k, k)}: ", f"{v}.")
+            for k, v in sorted(deg.items())])
+        para(doc, "A fourth consequence is not visible as a constant and so "
+                  "has to be argued rather than detected. The "
+                  "macro-averaged columns — macro F1, macro precision, "
+                  "macro recall — average over the labels present in the "
+                  "truth or in the prediction. With one true class, that "
+                  "set is {the cohort} together with whatever other cohorts "
+                  "the model wrongly guessed, each contributing zero. Those "
+                  "columns therefore vary with the number of distinct wrong "
+                  "guesses rather than with performance, and they are not "
+                  "interpretable as F1 or precision. They are omitted here "
+                  "for that reason, not because they are constant.")
+        para(doc, "What survives is reported below: the accuracy, which in a "
+                  "single-class slice is exactly that cohort's recall and is "
+                  "labelled as such; top-2 accuracy, which asks whether the "
+                  "true cohort was among the model's two best guesses; the "
+                  "two proper scores, which are computed per patient and are "
+                  "unaffected; and the within-cohort C-index, which ranks "
+                  "that cohort's patients by risk and never touches the "
+                  "label space. Section 6.18 shows the same table for the "
+                  "stage_binary target, where the slice contains both "
+                  "classes and the full panel is therefore meaningful — the "
+                  "contrast between the two is the clearest demonstration "
+                  "that this is a property of the split and not of the "
+                  "model.")
     if pc:
-        hdr = ["Cohort", "n", "Events", "Event rate", "Acc", "BAcc", "F1-M",
-               "F1-W", "MCC", "κ", "Top-2", "LogLoss", "Brier", "C-index"]
+        hdr = ["Cohort", "n in fold", "Cohort events", "Cohort event rate",
+               "Recall", "Top-2", "LogLoss", "Brier", "C-index"]
         rows = [[r["cohort"], iv(r["n"]), iv(r["events"]),
                  fv(r["event_rate"]), fv(r["accuracy"]),
-                 fv(r["balanced_accuracy"]), fv(r["f1_macro"]),
-                 fv(r["f1_weighted"]), fv(r["mcc"]), fv(r["kappa"]),
                  fv(r["top2_accuracy"]), fv(r["log_loss"]), fv(r["brier"]),
                  fv(r["c_index"])] for r in pc["rows"]]
-        wide_table(doc, n.t(),
-                   "Per-cohort metrics on the held-out fold, ordered by "
-                   "accuracy. The event count and event rate are carried "
-                   "over from the cohort table so each row can be weighed "
-                   "by the evidence behind it.",
+        rows_table(doc, n.t(),
+                   "Per-cohort results on the held-out fold, ordered by "
+                   "recall. Two of the columns describe different "
+                   "populations and the headings say which: \"n in fold\" "
+                   "is how many of that cohort's patients fell in the "
+                   "held-out fold and is what every metric to its right is "
+                   "computed on, whereas \"cohort events\" and \"cohort "
+                   "event rate\" are the whole cohort's, carried over from "
+                   "the cohort table so each row can be weighed by the "
+                   "evidence behind it. A cohort can therefore show more "
+                   "deaths than patients in this table without anything "
+                   "being wrong. Recall is the fraction of that cohort's "
+                   "in-fold patients the model assigned to it; the "
+                   "degenerate and uninterpretable columns listed above are "
+                   "omitted rather than printed.",
                    hdr, rows,
-                   groups=[["n", "Events", "Event rate", "Acc", "BAcc",
-                            "F1-M", "F1-W"],
-                           ["MCC", "κ", "Top-2", "LogLoss", "Brier",
-                            "C-index"]],
-                   part_caps=["Cohort size and the agreement measures.",
-                              "The chance-corrected, proper-scoring and "
-                              "survival measures."],
-                   first_width=1.0, col_width=0.75, font=7.5)
+                   widths=[0.95, 0.72, 0.8, 0.9, 0.62, 0.55, 0.7, 0.58,
+                           0.68], font=8.0)
         acc, ci = pc["accuracy"], pc["c_index"]
         rows_table(doc, n.t(),
                    "Distribution of the per-cohort metrics, and their "
@@ -2943,13 +2998,13 @@ def ch6_percohort(doc, x: F, n: N, A: dict):
                    "Fisher z interval.",
                    ["Quantity", "Value"],
                    [["Cohorts evaluated", iv(pc.get("n_cohorts"))],
-                    ["Accuracy: mean (SD)",
+                    ["Recall: mean (SD)",
                      f"{fv(acc['mean'])} ({fv(acc['sd'])})"],
-                    ["Accuracy: median",
+                    ["Recall: median",
                      fv(acc["median"])],
-                    ["Accuracy: range",
+                    ["Recall: range",
                      f"{fv(acc['min'])} to {fv(acc['max'])}"],
-                    ["Cohorts with accuracy ≥ 0.90",
+                    ["Cohorts with recall ≥ 0.90",
                      iv(pc.get("n_acc_above_90"))],
                     ["C-index: mean (SD)",
                      f"{fv(ci['mean'])} ({fv(ci['sd'])})"],
@@ -2958,7 +3013,7 @@ def ch6_percohort(doc, x: F, n: N, A: dict):
                      f"{fv(ci['min'])} to {fv(ci['max'])}"],
                     ["Cohorts with C-index > 0.5",
                      iv(pc.get("n_cindex_above_half"))],
-                    ["corr(cohort size, accuracy)",
+                    ["corr(cohort size, recall)",
                      _corr_str(pc.get("corr_n_accuracy"))],
                     ["corr(cohort size, C-index)",
                      _corr_str(pc.get("corr_n_cindex"))],
@@ -2966,7 +3021,7 @@ def ch6_percohort(doc, x: F, n: N, A: dict):
                      _corr_str(pc.get("corr_eventrate_cindex"))]],
                    widths=[2.6, 3.7], font=9.0)
         para(doc, "Two of those three correlations are the interesting "
-                  "ones. Cohort size does not predict per-cohort accuracy "
+                  "ones. Cohort size does not predict per-cohort recall "
                   f"to any detectable degree ({_corr_str(pc.get('corr_n_accuracy'))}"
                   "), which argues that the per-cohort spread is driven by "
                   "how distinctive a cancer type's molecular profile is "

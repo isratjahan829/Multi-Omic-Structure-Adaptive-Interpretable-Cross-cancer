@@ -1516,6 +1516,99 @@ print("No leave-one-cancer-out classification number is reported as a "
 """)
 
 rmd(r"""
+### 2.11b Per-cohort behaviour, and which columns survive being split
+
+A pooled pan-cancer metric is dominated by the large cohorts, so performance
+is also computed inside each cohort. Only part of the metric panel survives
+that, for the same reason the transfer classification column does not: a
+single cohort's slice of the held-out fold contains patients of exactly one
+class, so the classification problem inside it is not a 32-class problem.
+
+Which columns that ruins is tested rather than asserted -- a column is called
+degenerate when it is zero throughout, empty throughout, or identical to the
+accuracy column in every row. The macro-averaged columns are a separate case:
+they average over the labels present in the truth or the prediction, so with
+one true class they vary with the number of distinct wrong guesses rather
+than with performance. They are dropped on that argument, not on the test.
+
+Note the contrast with `stage_binary`, where a cohort's slice contains both
+classes and almost nothing is degenerate. That is the demonstration that this
+is a property of the split, not of the model.
+""")
+
+rcode(r"""
+for name, res in (("cohort", A), ("stage_binary", S)):
+    g = res["per_cohort_degeneracy"]
+    print(f"--- {name}: {g['n_rows']} cohorts scored")
+    if g["degenerate"]:
+        for col, why in sorted(g["degenerate"].items()):
+            print(f"    DEGENERATE {col:20s} {why}")
+    else:
+        print("    no column is degenerate")
+    print("    columns that vary:", ", ".join(g["informative"]))
+    print()
+
+pc = A["per_cohort"]
+keep = ["cohort", "n", "events", "event_rate", "accuracy", "top2_accuracy",
+        "log_loss", "brier", "c_index"]
+# "n" is how many of that cohort landed in the held-out fold and is what the
+# metrics are computed on; "events" and "event_rate" are the WHOLE cohort's,
+# carried over for context. A row can show more deaths than in-fold patients
+# without anything being wrong, so the headings say which is which.
+df = pd.DataFrame(pc["rows"])[keep].rename(columns={
+    "n": "n in fold", "events": "cohort events",
+    "event_rate": "cohort event rate", "accuracy": "recall"})
+print("cohort run, the columns that survive:")
+print(df.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+print()
+for label, d in (("recall", pc["accuracy"]), ("C-index", pc["c_index"])):
+    print(f"{label:8s} mean {d['mean']:.4f} (SD {d['sd']:.4f}), median "
+          f"{d['median']:.4f}, range {d['min']:.4f} to {d['max']:.4f}")
+for label, key in (("cohort size vs recall", "corr_n_accuracy"),
+                   ("cohort size vs C-index", "corr_n_cindex"),
+                   ("event rate vs C-index", "corr_eventrate_cindex")):
+    c = pc[key]
+    print(f"corr({label}): r={c['r']:.4f} n={c['n']} p={c['p']:.4f} "
+          f"CI {c['ci_low']:.3f} to {c['ci_high']:.3f}")
+""")
+
+rmd(r"""
+### 2.11c Calibration, uncertainty, model size and cost
+
+Expected calibration error bins the predictions by confidence and compares
+each bin's confidence with its accuracy. Predictive entropy is reported both
+in nats and as a fraction of its maximum `ln K`, so the two targets can be
+compared despite having 32 and 2 classes.
+""")
+
+rcode(r"""
+import math
+for name, res, K in (("cohort", A, A["descriptives"]["n_cohorts"]),
+                     ("stage_binary", S, 2)):
+    p = res["panel"]
+    h = p.get("mean_predictive_entropy")
+    hmax = math.log(K)
+    print(f"--- {name}: {K} classes")
+    print(f"    ECE {p.get('ece'):.4f} | Brier {p.get('brier'):.4f} | "
+          f"log loss {p.get('log_loss'):.4f}")
+    print(f"    entropy {h:.4f} nats of a maximum ln {K} = {hmax:.4f}, "
+          f"normalised {h / hmax:.4f}")
+    c = res["cost"]
+    print(f"    {c['trainable_parameters']:,} parameters on "
+          f"{c['training_patients']:,} training patients = "
+          f"{c['parameters_per_patient']:.1f} per patient")
+print()
+print("parameters by component, cohort run:")
+tot = A["cost"]["trainable_parameters"]
+print(pd.DataFrame([{"component": k, "parameters": v,
+                     "share %": 100 * v / tot}
+                    for k, v, _ in A["cost"]["blocks"]])
+      .to_string(index=False, float_format=lambda v: f"{v:.2f}"))
+print(f"\nmeasured cost of one ablation fold: "
+      f"{A['cost']['ablation_seconds_mean']:.0f} s on CPU")
+""")
+
+rmd(r"""
 ### 2.12 Interpretation
 
 Two channels: integrated gradients over the input blocks, and the model's own

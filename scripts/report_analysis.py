@@ -944,6 +944,50 @@ def per_cohort_derived(runs: str) -> Optional[dict]:
 # --------------------------------------------------------------------------- #
 # 12. Runtime and model size
 # --------------------------------------------------------------------------- #
+PER_COHORT_COLS = ["accuracy", "balanced_accuracy", "f1_macro",
+                   "f1_weighted", "precision_macro", "recall_macro",
+                   "specificity_macro", "npv_macro", "kappa",
+                   "kappa_quadratic", "mcc", "top2_accuracy", "auroc",
+                   "log_loss", "brier", "c_index"]
+
+
+def per_cohort_degeneracy(runs: str) -> Optional[dict]:
+    """Which per-cohort columns carry information, decided from the data.
+
+    A per-cohort slice of the `cohort` run contains patients of exactly one
+    class, so the same degeneracy that makes the transfer classification
+    column unreadable applies here too: accuracy collapses onto that cohort's
+    recall, balanced accuracy equals it, and the chance-corrected measures are
+    zero for every row. Rather than assert which columns that ruins, each is
+    tested: a column is called degenerate if every value is zero, if it is
+    empty throughout, or if it equals the accuracy column in every row.
+    """
+    rows = read_csv(os.path.join(runs, "table2c_per_cohort.csv"))
+    if not rows:
+        return None
+    acc = [num(r.get("accuracy")) for r in rows]
+    out = {}
+    for col in PER_COHORT_COLS:
+        if col not in rows[0]:
+            continue
+        vals = [num(r.get(col)) for r in rows]
+        present = [v for v in vals if v is not None]
+        if not present:
+            out[col] = "empty in every row"
+            continue
+        if all(abs(v) < 1e-12 for v in present):
+            out[col] = "zero in every row"
+            continue
+        if col != "accuracy" and all(
+                a is not None and v is not None and abs(a - v) < 1e-12
+                for a, v in zip(acc, vals)):
+            out[col] = "identical to accuracy in every row"
+    informative = [c for c in PER_COHORT_COLS
+                   if c in rows[0] and c not in out]
+    return {"degenerate": out, "informative": informative,
+            "n_rows": len(rows)}
+
+
 def cost_derived(runs: str) -> Optional[dict]:
     pr = None
     for name in ("cohort_parameter_report.json",
@@ -997,6 +1041,7 @@ def analyse(runs: str) -> dict:
         "loco": loco_derived(runs),
         "interpretation": interpretation_derived(runs),
         "per_cohort": per_cohort_derived(runs),
+        "per_cohort_degeneracy": per_cohort_degeneracy(runs),
         "cost": cost_derived(runs),
     }
 
