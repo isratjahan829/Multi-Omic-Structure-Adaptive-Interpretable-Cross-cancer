@@ -273,7 +273,19 @@ def fig_comparison(t3: pd.DataFrame, mosaic: Dict[str, float], out: str) -> str:
             continue
         s = t3[metric].dropna().sort_values()
         mv = mosaic.get(metric)
-        ax.barh(range(len(s)), s.values, color=C1, height=0.68)
+        # Bars encode magnitude from zero, which is right for balanced
+        # accuracy -- chance is 1/32 there, so zero is close to the floor of
+        # what the metric can mean. It is wrong for the C-index, whose floor
+        # is 0.5: half that axis is unreachable, so bars from zero make
+        # 0.734 and 0.779 look identical. Dots carry no area, so the axis can
+        # start where the metric does, with the random value marked.
+        dots = metric == "c_index"
+        if dots:
+            ax.scatter(s.values, range(len(s)), s=46, color=C1,
+                       edgecolor="white", linewidth=0.9, zorder=3)
+            ax.axvline(0.5, color=INK2, linewidth=1.2, zorder=2)
+        else:
+            ax.barh(range(len(s)), s.values, color=C1, height=0.68)
         ax.set_yticks(range(len(s)))
         ax.set_yticklabels(s.index, fontsize=7)
         ax.set_xlabel(label)
@@ -286,13 +298,24 @@ def fig_comparison(t3: pd.DataFrame, mosaic: Dict[str, float], out: str) -> str:
         if mv is not None:
             hi = max(hi, mv)
             ax.axvline(mv, color=C2, linewidth=2, zorder=4)
-        # Don't pad out to 1.0: on C-index the whole panel would be half
-        # empty and the differences that matter would be squeezed.
-        ax.set_xlim(0, hi * 1.16)
+        if dots:
+            lo = min(float(s.min()), mv if mv is not None else 1.0)
+            span = max(hi - 0.5, 0.02)
+            ax.set_xlim(min(0.5 - 0.04 * span, lo - 0.06 * span),
+                        hi + 0.22 * span)
+            ax.text(0.5, -0.9, "0.5 = random ranking", fontsize=7.5,
+                    color=INK2, ha="center", va="top")
+        else:
+            # Don't pad out to 1.0: the panel would be half empty.
+            ax.set_xlim(0, hi * 1.16)
         if mv is not None:
-            ax.text(mv + hi * 0.012, len(s) - 0.6,
-                    f"MOSAIC-GNN {mv:.3f}", color=C2, fontsize=8,
-                    fontweight="bold", va="top", ha="left")
+            pad = (ax.get_xlim()[1] - ax.get_xlim()[0]) * 0.012
+            # Put the label where the panel is empty. The bars are sorted
+            # ascending, so in the bar panel the free space is beside the
+            # shortest bar at the bottom; in the dot panel it is at the top.
+            yy, va = ((len(s) - 0.6, "top") if dots else (-0.2, "bottom"))
+            ax.text(mv + pad, yy, f"MOSAIC-GNN {mv:.3f}", color=C2,
+                    fontsize=8, fontweight="bold", va=va, ha="left")
         ax.grid(axis="y", visible=False)
         ax.set_title(f"({'a' if metric.startswith('bal') else 'b'}) {label}")
         tidy(ax)

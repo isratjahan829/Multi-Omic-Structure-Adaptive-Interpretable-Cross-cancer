@@ -2653,9 +2653,16 @@ def ch6_compare(doc, x: F, n: N, A: dict, runs: str, figdir: str):
                   "not whether the difference could have arisen by chance.",
              space_before=8)
     add_figure(doc, f"{figdir}/fig4_comparison.png")
-    caption(doc, n.f() + ":", "MOSAIC-GNN against every comparator with "
-                              "bootstrap intervals, on survival ranking and "
-                              "on classification.", above=False)
+    caption(doc, n.f() + ":", "MOSAIC-GNN against every comparator, drawn "
+                              "as a reference line because it is not one of "
+                              "the baselines. (a) balanced accuracy as "
+                              "bars, where zero is close to the metric's "
+                              "floor of 1/32; (b) the C-index as dots "
+                              "rather than bars, because its floor is 0.5 "
+                              "and bars drawn from zero would make 0.734 "
+                              "and 0.779 look identical — the random value "
+                              "is marked instead and the axis starts there.",
+            above=False)
 
 
 def ch6_paired(doc, x: F, n: N, A: dict):
